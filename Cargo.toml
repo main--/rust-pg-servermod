@@ -1,0 +1,18 @@
+[package]
+name = "postgres-server-module"
+version = "0.1.0"
+authors = ["main() <main@ehvag.de>"]
+
+[profile.release]
+opt-level = 3
+
+[lib]
+crate-type = ["cdylib"]
+
+[build-dependencies]
+pgbuild = { path = "pgbuild" }
+
+[dependencies]
+unreachable = "1.0"
+
+[workspace]

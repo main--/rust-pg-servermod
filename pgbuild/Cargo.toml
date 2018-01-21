@@ -1,0 +1,7 @@
+[package]
+name = "pgbuild"
+version = "0.1.0"
+authors = ["main() <main@ehvag.de>"]
+
+[build-dependencies]
+cc = "1.0"
