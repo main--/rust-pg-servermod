@@ -18,9 +18,17 @@ extern "C" {
 static RUST_PANIC_FUNCNAME: [u8; 11] = *b"RUST PANIC\0";
 fn rust_panic_funcname_ptr() -> *const c_char { RUST_PANIC_FUNCNAME.as_ptr() as *const c_char }
 
-thread_local! {
-    // BUG: this may leak some panic payloads every time you unload us
-    static LAST_RUST_PANIC: AtomicPtr<Box<Any + Send>> = AtomicPtr::new(ptr::null_mut());
+// postgres is single-threaded software.
+static LAST_RUST_PANIC: AtomicPtr<Box<Any + Send>> = AtomicPtr::new(ptr::null_mut());
+
+// this is a formality as it can't ever happen
+// in theory it would avoid a potential memory leak if you unload and re-load us a lot of times
+#[doc(hidden)]
+pub unsafe extern "C" fn _PG_fini() {
+    let ptr = LAST_RUST_PANIC.load(Ordering::Relaxed);
+    if !ptr.is_null() {
+        drop(Box::from_raw(ptr));
+    }
 }
 
 #[inline(always)]
@@ -47,14 +55,14 @@ unsafe fn convert_rust_panic_inner(e: Box<Any + Send>) -> ! {
                 Err(_) => errmsg(b"<string conversion error>\0" as *const _ as *const _),
             }
         }
+
         // replace LAST_RUST_PANIC
-        LAST_RUST_PANIC.with(|ap| {
-            let new_panic = Box::into_raw(Box::new(e));
-            let old_panic = ap.swap(new_panic, Ordering::Relaxed);
-            if !old_panic.is_null() {
-                drop(Box::from_raw(old_panic));
-            }
-        });
+        let new_panic = Box::into_raw(Box::new(e));
+        let old_panic = LAST_RUST_PANIC.swap(new_panic, Ordering::Relaxed);
+        if !old_panic.is_null() {
+            drop(Box::from_raw(old_panic));
+        }
+
         errfinish(0);
     }
     self::unreachable::unreachable()
@@ -146,11 +154,10 @@ pub fn convert_postgres_error<F: FnOnce() -> R + UnwindSafe, R>(f: F) -> R {
         unsafe {
             // check ptr equality for our magic funcname
             if (*e.0).funcname == rust_panic_funcname_ptr() {
-                let payload = LAST_RUST_PANIC.with(|ap| {
-                    let ptr = ap.swap(ptr::null_mut(), Ordering::Relaxed);
-                    assert!(!ptr.is_null());
-                    Box::from_raw(ptr)
-                });
+                let ptr = LAST_RUST_PANIC.swap(ptr::null_mut(), Ordering::Relaxed);
+                assert!(!ptr.is_null());
+                let payload = Box::from_raw(ptr);
+
                 panic::resume_unwind(*payload)
             } else {
                 // just throw as PgError
