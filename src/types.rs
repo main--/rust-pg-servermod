@@ -1,4 +1,4 @@
-// contract: everything in here is StaticallyTyped + From<Datum> + Into<Datum>
+// contract: everything in here is StaticallyTyped + FromDatum + Into<Datum>
 use super::Datum;
 
 mod hack { pub type bool_hack = bool; }
@@ -102,19 +102,24 @@ pub struct text<'a>(bytea<'a>);
 
 pub type void = ();
 
-impl<'a> From<text<'a>> for Datum { fn from(t: text<'a>) -> Datum { t.0.into() } }
-impl<'a> From<Datum> for text<'a> { fn from(d: Datum) -> text<'a> { text(bytea::from(d)) } }
-impl<'a> From<bytea<'a>> for Datum { fn from(b: bytea<'a>) -> Datum { Datum(b. 0 as usize) } }
-impl<'a> From<Datum> for bytea<'a> { fn from(d: Datum) -> bytea<'a> { unsafe { bytea(super::pg_detoast_datum_packed(d.0 as *mut _), ::std::marker::PhantomData) } } }
+impl<'a> From<text<'a>> for Datum<'a> { fn from(t: text<'a>) -> Datum<'a> { t.0.into() } }
+impl<'a> FromDatum<'a> for text<'a> { unsafe fn from(d: Datum<'a>) -> text<'a> { text(FromDatum::from(d)) } }
+impl<'a> From<bytea<'a>> for Datum<'a> { fn from(b: bytea<'a>) -> Datum<'a> { Datum::create(b. 0 as usize) } }
+impl<'a> FromDatum<'a> for bytea<'a> { unsafe fn from(d: Datum<'a>) -> bytea<'a> { bytea(super::pg_detoast_datum_packed(d.0 as *mut _), ::std::marker::PhantomData) } }
 
-impl From<oid> for Datum { fn from(i: oid) -> Datum { Datum(i.0 as usize) } }
-impl From<Datum> for oid { fn from(d: Datum) -> oid { Oid(d.0 as u32) } }
-impl From<int8> for Datum { fn from(i: i64) -> Datum { Datum(i as usize) } }
-impl From<Datum> for int8 { fn from(d: Datum) -> i64 { d.0 as i64 } }
-impl From<int4> for Datum { fn from(i: i32) -> Datum { Datum(i as usize) } }
-impl From<Datum> for int4 { fn from(d: Datum) -> i32 { d.0 as i32 } }
+impl<'a> From<oid> for Datum<'a> { fn from(i: oid) -> Datum<'a> { Datum::create(i.0 as usize) } }
+impl<'a> FromDatum<'a> for oid { unsafe fn from(d: Datum<'a>) -> oid { Oid(d.0 as u32) } }
+impl<'a> From<int8> for Datum<'a> { fn from(i: i64) -> Datum<'a> { Datum::create(i as usize) } }
+impl<'a> FromDatum<'a> for int8 { unsafe fn from(d: Datum<'a>) -> i64 { d.0 as i64 } }
+impl<'a> From<int4> for Datum<'a> { fn from(i: i32) -> Datum<'a> { Datum::create(i as usize) } }
+impl<'a> FromDatum<'a> for int4 { unsafe fn from(d: Datum<'a>) -> i32 { d.0 as i32 } }
 
+// can't use regular(safe) From:
+// e.g. datum -> bytea imples that datum is a valid ptr
 
+pub trait FromDatum<'a> {
+    unsafe fn from(datum: Datum<'a>) -> Self;
+}
 
 
 pub unsafe trait StaticallyTyped { const OID: Oid; }
@@ -129,8 +134,8 @@ unsafe impl<'a> StaticallyTyped for text<'a> { const OID: Oid = Oid(25); }
 unsafe impl StaticallyTyped for Oid { const OID: Oid = Oid(26); }
 
 // void type:
-impl From<void> for Datum { fn from(_: ()) -> Datum { Datum(0) } }
-impl From<Datum> for void { fn from(_: Datum) { } }
+impl<'a> From<void> for Datum<'a> { fn from(_: ()) -> Datum<'a> { Datum::create(0) } }
+impl<'a> FromDatum<'a> for void { unsafe fn from(_: Datum<'a>) { } }
 unsafe impl StaticallyTyped for void { const OID: Oid = Oid(2278); }
 
 

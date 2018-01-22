@@ -22,7 +22,12 @@ pub mod types;
 
 #[repr(C)]
 #[derive(Copy, Clone)]
-pub struct Datum(usize);
+pub struct Datum<'a>(usize, ::std::marker::PhantomData<&'a ()>);
+impl<'a> Datum<'a> {
+    pub fn create(value: usize) -> Datum<'a> {
+        Datum(value, ::std::marker::PhantomData)
+    }
+}
 
 
 // TODO: allocation api
@@ -83,12 +88,20 @@ fn do_index_scan(rel: Oid, idx: Oid) -> i32 {
 }
 
 
+// TODO: SRF (with generators)
+
+
+lowlevel_export! {
+    fn lowlevel @ pg_finfo_lowlevel(_fcinfo) {
+        Datum::create(0)
+    }
+}
+
 
 
 
 
 //macro_rules! 
-
 
 
 CREATE_FUNCTION! {

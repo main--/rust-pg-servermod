@@ -1,6 +1,6 @@
 use std::os::raw::c_void;
 use Datum;
-use types::{Oid, bytea_mut};
+use types::{StaticallyTyped, FromDatum, Oid, bytea_mut};
 
 extern "C" {
     pub fn get_fn_expr_argtype(flinfo: *mut FmgrInfo, argnum: i32) -> Oid;
@@ -27,14 +27,14 @@ pub struct FmgrInfo {
 }
 
 #[repr(C)]
-pub struct FunctionCallInfoData {
-    pub flinfo: *mut FmgrInfo,
+pub struct FunctionCallInfoData<'a> {
+    flinfo: *mut FmgrInfo,
     context: *mut c_void, // fmNodePtr
     resultinfo: *mut c_void, // fmNodePtr
     fncollation: Oid,
     isnull: u8, // bool
     nargs: i16,
-    args: [Datum; super::FUNC_MAX_ARGS],
+    args: [Datum<'a>; super::FUNC_MAX_ARGS],
     argnull: [u8; super::FUNC_MAX_ARGS],
 }
 
@@ -42,9 +42,9 @@ pub struct FunctionCallInfoData {
 
 // fixme: should never be holding this by value anyways
 #[repr(C)]
-pub struct FunctionCallInfo(pub *mut FunctionCallInfoData);
+pub struct FunctionCallInfo<'a>(pub *mut FunctionCallInfoData<'a>);
 
-impl FunctionCallInfo {
+impl<'a> FunctionCallInfo<'a> {
     #[inline(always)]
     pub fn oid(&self) -> Oid {
         unsafe {
@@ -58,7 +58,7 @@ impl FunctionCallInfo {
         }
     }
 
-    pub fn arg_types<'a>(&'a self) -> ArgTypesIter<'a> {
+    pub fn arg_types<'b>(&'b self) -> ArgTypesIter<'a, 'b> {
         ArgTypesIter {
             fcinfo: self,
             i: 0,
@@ -66,25 +66,29 @@ impl FunctionCallInfo {
     }
     
     #[inline(always)]
-    pub fn args_strict(&self) -> &[Datum] {
+    pub fn args_strict(&self) -> &[Datum<'a>] {
         unsafe {
             let len = (*self.0).nargs as usize;
             &(*self.0).args[..len]
         }
     }
 
+    pub fn arg<T: StaticallyTyped + FromDatum<'a>>(&self) -> Option<T> {
+        unimplemented!(); // typecheck, then FromDatum
+    }
+
     #[inline(always)]
-    pub fn args<'a>(&'a self) -> ArgsIter<'a> {
+    pub fn args<'b>(&'b self) -> ArgsIter<'a, 'b> {
         unsafe {
             ArgsIter(self.args_strict().iter().zip((*self.0).argnull.iter()))
         }
     }
 
     #[inline(always)]
-    pub fn return_null(&self) -> Datum {
+    pub fn return_null(&self) -> Datum<'a> {
         unsafe {
             (*self.0).isnull = 1;
-            Datum(0)
+            Datum::create(0)
         }
     }
 
@@ -103,11 +107,11 @@ impl FunctionCallInfo {
     }
 }
 
-pub struct ArgTypesIter<'a> {
-    fcinfo: &'a FunctionCallInfo,
+pub struct ArgTypesIter<'a: 'b, 'b> {
+    fcinfo: &'b FunctionCallInfo<'a>,
     i: i16,
 }
-impl<'a> Iterator for ArgTypesIter<'a> {
+impl<'a: 'b, 'b> Iterator for ArgTypesIter<'a, 'b> {
     type Item = Oid;
 
     fn next(&mut self) -> Option<Oid> {
@@ -123,7 +127,7 @@ impl<'a> Iterator for ArgTypesIter<'a> {
         }
     }
 }
-impl<'a> ExactSizeIterator for ArgTypesIter<'a> {
+impl<'a: 'b, 'b> ExactSizeIterator for ArgTypesIter<'a, 'b> {
     fn len(&self) -> usize {
         unsafe {
             ((*(*self.fcinfo.0).flinfo).fn_nargs - self.i) as usize
@@ -134,9 +138,9 @@ impl<'a> ExactSizeIterator for ArgTypesIter<'a> {
 
 use std::iter::Zip;
 use std::slice::Iter;
-pub struct ArgsIter<'a>(Zip<Iter<'a, Datum>, Iter<'a, u8>>);
-impl<'a> Iterator for ArgsIter<'a> {
-    type Item = Option<Datum>;
+pub struct ArgsIter<'a: 'b, 'b>(Zip<Iter<'b, Datum<'a>>, Iter<'b, u8>>);
+impl<'a: 'b, 'b> Iterator for ArgsIter<'a, 'b> {
+    type Item = Option<Datum<'a>>;
 
     #[inline(always)]
     fn next(&mut self) -> Option<Self::Item> {
@@ -148,7 +152,7 @@ impl<'a> Iterator for ArgsIter<'a> {
         })
     }
 }
-impl<'a> ExactSizeIterator for ArgsIter<'a> {
+impl<'a: 'b, 'b> ExactSizeIterator for ArgsIter<'a, 'b> {
     fn len(&self) -> usize {
         self.0.len()
     }
@@ -193,6 +197,25 @@ macro_rules! CREATE_STRICT_FUNCTION {
     }
 }
 
+#[macro_export]
+macro_rules! lowlevel_export {
+    ( fn $fname:ident @ $finfo:ident ( $fcinfo:ident ) $body:block ) => {
+        #[no_mangle]
+        pub extern "C" fn $finfo () -> *const $crate::export::Pg_finfo_record {
+            static FINFO: $crate::export::Pg_finfo_record = $crate::export::Pg_finfo_record { version: 1 };
+            &FINFO
+        }
+
+        #[no_mangle]
+        pub unsafe extern "C" fn $fname <'a>(fcinfo: $crate::export::FunctionCallInfo<'a>) -> Datum<'a> {
+            fn user_impl<'a>($fcinfo: $crate::export::FunctionCallInfo<'a>) -> Datum<'a> {
+                $body
+            }
+
+            error::convert_rust_panic(|| user_impl(fcinfo))
+        }
+    }
+}
 
 #[macro_export]
 macro_rules! CREATE_FUNCTION {
@@ -243,7 +266,7 @@ macro_rules! CREATE_FUNCTION {
 
                 // finally, read the actual parameters
                 $(
-                    let $argname = args.next().unwrap().map(Into::into); // unwrap can't trigger, length is already checked
+                    let $argname = args.next().unwrap().map(|d| $crate::types::FromDatum::from(d)); // unwrap can't trigger, length is already checked
                 )*;
                 
                 user_impl($crate::export::FunctionCallContext { alloc: &() },
