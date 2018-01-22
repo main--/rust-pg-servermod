@@ -1,5 +1,8 @@
 use std::os::raw::c_void;
+use std::mem::ManuallyDrop;
+
 use Datum;
+use alloc::{self, MemoryContext};
 use types::{StaticallyTyped, FromDatum, Oid, bytea_mut};
 
 extern "C" {
@@ -42,7 +45,7 @@ pub struct FunctionCallInfoData<'a> {
 
 // fixme: should never be holding this by value anyways
 #[repr(C)]
-pub struct FunctionCallInfo<'a>(pub *mut FunctionCallInfoData<'a>);
+pub struct FunctionCallInfo<'a>(*mut FunctionCallInfoData<'a>);
 
 impl<'a> FunctionCallInfo<'a> {
     #[inline(always)]
@@ -51,7 +54,7 @@ impl<'a> FunctionCallInfo<'a> {
             (*(*self.0).flinfo).fn_oid
         }
     }
-    
+
     pub fn return_type(&self) -> Oid {
         unsafe {
             get_fn_expr_rettype((*self.0).flinfo)
@@ -64,7 +67,7 @@ impl<'a> FunctionCallInfo<'a> {
             i: 0,
         }
     }
-    
+
     #[inline(always)]
     pub fn args_strict(&self) -> &[Datum<'a>] {
         unsafe {
@@ -104,6 +107,14 @@ impl<'a> FunctionCallInfo<'a> {
         //$( assert_eq!(arg_types.next().unwrap(), <$crate::types::$argty as $crate::types::StaticallyTyped>::oid()); )*;
         // 3. no excess arguments
         assert_eq!(arg_types.next(), None);
+    }
+
+
+    pub unsafe fn bootstrap(self) -> FunctionCallContext<'a> {
+        FunctionCallContext {
+            fcinfo: self,
+            allocator: alloc::get_current_ctx(),
+        }
     }
 }
 
@@ -169,14 +180,21 @@ macro_rules! lifetimeize {
 }
 
 pub struct FunctionCallContext<'a> {
-    pub alloc: &'a (),
+    fcinfo: FunctionCallInfo<'a>,
+    allocator: ManuallyDrop<MemoryContext<'static>>,
 }
 
+
 impl<'a> FunctionCallContext<'a> {
+    pub fn fcinfo(&self) -> &FunctionCallInfo<'a> {
+        &self.fcinfo
+    }
+
     pub fn alloc_bytea(&self, len: usize) -> bytea_mut<'a> {
         unsafe {
             let size = len + 4;
-            let ptr = super::palloc0(size) as *mut u32;
+            //let ptr = super::palloc0(size) as *mut u32;
+            let ptr = self.allocator.alloc(size).as_mut_ptr() as *mut u32;
             *ptr = (size as u32) << 2;
             bytea_mut(ptr as *mut _, ::std::marker::PhantomData)
         }
@@ -233,12 +251,12 @@ macro_rules! CREATE_FUNCTION {
             static FINFO: $crate::export::Pg_finfo_record = $crate::export::Pg_finfo_record { version: 1 };
             &FINFO
         }
-        
+
         #[no_mangle]
         #[allow(unused_mut)]
         pub unsafe extern "C" fn $fname (fcinfo: $crate::export::FunctionCallInfo) -> Datum {
             #[inline(always)]
-            fn user_impl <'a> ( $context : $crate::export::FunctionCallContext<'a>, $( $argname : Option< lifetimeize!($argty) > ),* ) -> Option< lifetimeize!($retty) > {
+            fn user_impl <'a> ( $context : &$crate::export::FunctionCallContext<'a>, $( $argname : Option< lifetimeize!($argty) > ),* ) -> Option< lifetimeize!($retty) > {
                 $body
             }
 
@@ -247,6 +265,8 @@ macro_rules! CREATE_FUNCTION {
                 $( <$crate::types::$argty as $crate::types::StaticallyTyped>::OID ),*
             ];
 
+            let ctx = fcinfo.bootstrap();
+            let fcinfo = ctx.fcinfo();
             let ret = $crate::error::convert_rust_panic(|| {
                 let mut args = fcinfo.args();
                 let mut arg_types = fcinfo.arg_types();
@@ -268,8 +288,8 @@ macro_rules! CREATE_FUNCTION {
                 $(
                     let $argname = args.next().unwrap().map(|d| $crate::types::FromDatum::from(d)); // unwrap can't trigger, length is already checked
                 )*;
-                
-                user_impl($crate::export::FunctionCallContext { alloc: &() },
+
+                user_impl(&ctx,
                     $(
                         $argname
                     ),*

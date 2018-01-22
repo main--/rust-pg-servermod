@@ -36,7 +36,6 @@ impl<'a> Datum<'a> {
 // lifetimes saving the day
 extern "C" {
     fn pg_detoast_datum_packed(p: *mut c_void) -> *mut c_void;
-    fn palloc0(size: usize) -> *mut c_void;
 }
 
 
