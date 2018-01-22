@@ -219,13 +219,13 @@ macro_rules! lowlevel_export {
 
 #[macro_export]
 macro_rules! CREATE_FUNCTION {
-    ( fn $fname:ident @ $finfo:ident ( $context:ident , $( $argname:ident : $argty:ident ),* ) $body:block ) => {
+    ( fn $fname:ident @ $finfo:ident ( $context:ident $( , $argname:ident : $argty:ident )* ) $body:block ) => {
         CREATE_FUNCTION! {
-            fn $fname @ $finfo ( $context, $( $argname : $argty ),* ) -> void { let () = $body; Some(()) }
+            fn $fname @ $finfo ( $context $( , $argname : $argty )* ) -> void { let () = $body; Some(()) }
         }
     };
 
-    ( fn $fname:ident @ $finfo:ident ( $context:ident , $( $argname:ident : $argty:ident ),* ) -> $retty:ident $body:block ) => {
+    ( fn $fname:ident @ $finfo:ident ( $context:ident  $( , $argname:ident : $argty:ident )* ) -> $retty:ident $body:block ) => {
         // non-SRF case
         #[no_mangle]
         // this does not work: #[link_name = concat!("pg_finfo_", stringify!($fname))]

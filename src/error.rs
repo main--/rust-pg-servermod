@@ -1,13 +1,15 @@
 pub extern crate unreachable;
 
-use std::os::raw::{c_void, c_char};
-use std::ptr;
+use std::os::raw::c_char;
+use std::{ptr, mem};
 use std::ffi::CString;
 use std::panic::{self, UnwindSafe};
 use std::error::Error;
 use std::fmt::{Debug, Display, Result as FmtResult, Formatter};
 use std::any::Any;
 use std::sync::atomic::{AtomicPtr, Ordering};
+
+use alloc::MemoryContext;
 
 extern "C" {
     fn errstart(level: i32, filename: *const c_char, line: i32, funcname: *const c_char, domain: *const c_char) -> u32;
@@ -69,7 +71,6 @@ unsafe fn convert_rust_panic_inner(e: Box<Any + Send>) -> ! {
 }
 
 
-type MemoryContext = *mut c_void;
 extern "C" {
     static mut PG_exception_stack: *mut u8;
     static mut error_context_stack: *mut u8;
@@ -79,13 +80,7 @@ extern "C" {
     fn CopyErrorData() -> *mut ErrorData;
     // fn FreeErrorData(ed: *mut ErrorData);
     fn ReThrowError(ed: *mut ErrorData) -> !;
-
-    #[cfg(feature = "v1000")]
-    fn GenerationContextCreate(parent: MemoryContext, name: *const c_char, flags: i32, block_size: usize) -> MemoryContext;
-    #[cfg(postgres = "9.5")]
-    fn AllocSetContextCreate(parent: MemoryContext, name: *const c_char, min_size: usize, init_size: usize, max_size: usize) -> MemoryContext;
-    fn MemoryContextDelete(context: MemoryContext);
-    static mut CurrentMemoryContext: MemoryContext;
+    fn pg_re_throw() -> !;
 }
 
 #[repr(C)]
@@ -118,7 +113,7 @@ struct ErrorData {
     internalquery: *const c_char,
     saved_errno: i32,
 
-    assoc_context: MemoryContext,
+    assoc_context: MemoryContext<'static>, // imperfect approximation
 }
 
 // TODO: error builder api so I can construct one myself and pass it to panic!()
@@ -128,15 +123,26 @@ pub struct PgError(*mut ErrorData);
 unsafe impl Send for PgError {}
 impl PgError {
     pub unsafe fn rethrow(self) -> ! {
-        let ptr = self.0;
-        ::std::mem::forget(self);
-        ReThrowError(ptr)
-    }
-}
-impl Drop for PgError {
-    fn drop(&mut self) {
-        unsafe {
-            MemoryContextDelete((*self.0).assoc_context);
+        // bending postgres memory allocation to rust is hard
+        // the (admittedly /very/ awkward) solution here is
+        // to throw, catch, free our copy, then immediately rethrow
+
+        let save_exception_stack = PG_exception_stack;
+        let save_context_stack = error_context_stack;
+        let mut jmpbuf = [0u8; ::LEN_SIGJMPBUF];
+
+        if sigsetjmp(jmpbuf.as_mut_ptr(), 0) == 0 {
+            PG_exception_stack = jmpbuf.as_mut_ptr();
+            ReThrowError(self.0)
+            // control flows into the else block from here
+        } else {
+            PG_exception_stack = save_exception_stack;
+            error_context_stack = save_context_stack;
+
+            // error is on the PG error stack, time to free our copy
+            drop(self);
+            pg_re_throw();
+            // unreachable
         }
     }
 }
@@ -195,12 +201,17 @@ pub fn catch_postgres_error<F: FnOnce() -> R + UnwindSafe, R>(f: F) -> Result<R,
                                                    0, // no flags
                                                    500); // block size of 500 (???)
                  */
+                /*
                 let mctx = AllocSetContextCreate(ptr::null_mut(), // no parent allocator
                                                  b"rust panic bridge allocator\0".as_ptr() as *const c_char, // name
                                                  0,
                                                  8192,
                                                  8192 * 1024);
                 CurrentMemoryContext = mctx;
+                 */
+                let mctx = MemoryContext::create_allocset(None, 0, 8192, 8192 * 1024);
+                mctx.set_current();
+                mem::forget(mctx);
 
                 let err = PgError(CopyErrorData());
                 FlushErrorState();

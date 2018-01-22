@@ -10,6 +10,7 @@ use types::{Oid, StaticallyTyped};
 include!(concat!(env!("OUT_DIR"), "/basedefs.rs"));
 
 // external modules
+pub mod alloc;
 pub mod types;
 #[macro_use] pub mod export;
 
@@ -152,6 +153,14 @@ CREATE_FUNCTION! {
     fn rbitand_count @ pg_finfo_rbitand_count (_ctx, a: bytea, b: bytea) -> int4 {
         let sum: u32 = a?.iter().cloned().zip(b?.iter().cloned()).map(|(a, b)| (a & b).count_ones()).sum();
         Some(sum as i32)
+    }
+}
+
+CREATE_FUNCTION! {
+    fn errtest @ pg_finfo_errtest (_ctx) -> void {
+        unsafe {
+            error::convert_postgres_error(|| error::convert_rust_panic(|| panic!("inney")))
+        }
     }
 }
 
