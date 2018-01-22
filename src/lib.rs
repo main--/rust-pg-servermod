@@ -142,20 +142,6 @@ CREATE_FUNCTION! {
     }
 }
 
-CREATE_FUNCTION! {
-    fn errtest @ pg_finfo_errtest (_ctx,) {
-        unsafe {
-            error::convert_postgres_error(|| {
-                error::convert_rust_panic(|| {
-                    error::convert_postgres_error(|| {
-                        error::convert_rust_panic(|| panic!("innermost panic"));
-                    });
-                });
-            });
-        }
-    }
-}
-
 CREATE_STRICT_FUNCTION! {
     fn scantest @ pg_finfo_scantest (_ctx, rel: Oid, idx: Oid) -> int4 {
         Some(do_index_scan(rel, idx))

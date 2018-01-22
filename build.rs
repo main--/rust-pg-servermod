@@ -9,7 +9,9 @@ fn main() {
     // pgbuild functions are unsafe for no reason
     // but writing wrappers for every single one of them is rather pointless
     unsafe {
-        println!("cargo:rustc-cfg=v{}", pgbuild::pg_version());
+        let major = pgbuild::pg_version() / 100;
+        let minor = pgbuild::pg_version() % 100;
+        println!("cargo:rustc-cfg=postgres=\"{}.{}\"", major, minor);
 
         let mut f = File::create(Path::new(&env::var("OUT_DIR").unwrap()).join("basedefs.rs")).unwrap();
         writeln!(f, "const PG_VERSION: usize = {};", pgbuild::pg_version()).unwrap();

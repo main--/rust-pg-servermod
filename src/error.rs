@@ -80,7 +80,10 @@ extern "C" {
     // fn FreeErrorData(ed: *mut ErrorData);
     fn ReThrowError(ed: *mut ErrorData) -> !;
 
+    #[cfg(feature = "v1000")]
     fn GenerationContextCreate(parent: MemoryContext, name: *const c_char, flags: i32, block_size: usize) -> MemoryContext;
+    #[cfg(postgres = "9.5")]
+    fn AllocSetContextCreate(parent: MemoryContext, name: *const c_char, min_size: usize, init_size: usize, max_size: usize) -> MemoryContext;
     fn MemoryContextDelete(context: MemoryContext);
     static mut CurrentMemoryContext: MemoryContext;
 }
@@ -118,6 +121,9 @@ struct ErrorData {
     assoc_context: MemoryContext,
 }
 
+// TODO: error builder api so I can construct one myself and pass it to panic!()
+// this is mostly relevant so I can report my own sql-compatible errors
+
 pub struct PgError(*mut ErrorData);
 unsafe impl Send for PgError {}
 impl PgError {
@@ -130,7 +136,6 @@ impl PgError {
 impl Drop for PgError {
     fn drop(&mut self) {
         unsafe {
-            //FreeErrorData(self.0)
             MemoryContextDelete((*self.0).assoc_context);
         }
     }
@@ -184,10 +189,17 @@ pub fn catch_postgres_error<F: FnOnce() -> R + UnwindSafe, R>(f: F) -> Result<R,
                 // because the concept of a "current memory context"
                 // is hard to encapsulate in Rust (esp. when we want to unwind down the stack),
                 // we create a new memory context just for this error data
+                /* This does not exist in 9.5
                 let mctx = GenerationContextCreate(ptr::null_mut(), // no parent allocator
                                                    b"rust panic bridge allocator\0".as_ptr() as *const c_char, // name
                                                    0, // no flags
                                                    500); // block size of 500 (???)
+                 */
+                let mctx = AllocSetContextCreate(ptr::null_mut(), // no parent allocator
+                                                 b"rust panic bridge allocator\0".as_ptr() as *const c_char, // name
+                                                 0,
+                                                 8192,
+                                                 8192 * 1024);
                 CurrentMemoryContext = mctx;
 
                 let err = PgError(CopyErrorData());
