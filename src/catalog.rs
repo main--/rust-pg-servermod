@@ -77,6 +77,12 @@ impl Type {
     }
 }
 
+// convenience
+pub fn get_type_name(oid: Oid) -> Option<String> {
+    let typ = Type::new(oid)?;
+    Some(typ.name().to_string_lossy().into_owned())
+}
+
 impl Drop for Type {
     fn drop(&mut self) {
         unsafe {

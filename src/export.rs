@@ -2,6 +2,7 @@ use std::os::raw::c_void;
 use std::mem::ManuallyDrop;
 
 use Datum;
+use catalog;
 use alloc::{self, MemoryContext};
 use types::{StaticallyTyped, FromDatum, Oid, bytea_mut};
 
@@ -97,16 +98,29 @@ impl<'a> FunctionCallInfo<'a> {
 
     #[inline(never)]
     pub fn typecheck(&self, ret_type: Oid, expected_types: &'static [Oid]) {
+        // TODO: also print function name in error messages
+
         // 1. check return type
-        assert_eq!(self.return_type(), ret_type);
+        if self.return_type() != ret_type {
+            panic!("Return type is {} but should be {}",
+                   catalog::get_type_name(self.return_type()).unwrap(),
+                   catalog::get_type_name(ret_type).unwrap());
+        }
+
         // 2. check arg types
         let mut arg_types = self.arg_types();
-        for &arg in expected_types {
-            assert_eq!(arg_types.next().unwrap(), arg);
+        for (i, &expected) in expected_types.iter().enumerate() {
+            let actual = arg_types.next().unwrap_or_else(||
+                    panic!("Argument #{} is missing", i));
+            if actual != expected {
+                panic!("Argument {} has type {} but should be {}", i,
+                       catalog::get_type_name(actual).unwrap(),
+                       catalog::get_type_name(expected).unwrap());
+            }
         }
-        //$( assert_eq!(arg_types.next().unwrap(), <$crate::types::$argty as $crate::types::StaticallyTyped>::oid()); )*;
+
         // 3. no excess arguments
-        assert_eq!(arg_types.next(), None);
+        assert_eq!(arg_types.next(), None, "Function declared with too many arguments");
     }
 
 
