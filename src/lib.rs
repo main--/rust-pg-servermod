@@ -13,6 +13,7 @@ include!(concat!(env!("OUT_DIR"), "/basedefs.rs"));
 pub mod alloc;
 pub mod types;
 #[macro_use] pub mod export;
+pub mod catalog;
 
 // macro-internal modules
 #[doc(hidden)] pub mod magic;
@@ -20,7 +21,7 @@ pub mod types;
 
 
 
-
+// TODO: repr(transparent) EVERYWHERE, esp. here
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub struct Datum<'a>(usize, ::std::marker::PhantomData<&'a ()>);
@@ -166,5 +167,12 @@ CREATE_FUNCTION! {
 CREATE_STRICT_FUNCTION! {
     fn scantest @ pg_finfo_scantest (_ctx, rel: Oid, idx: Oid) -> int4 {
         Some(do_index_scan(rel, idx))
+    }
+}
+
+CREATE_STRICT_FUNCTION! {
+    fn typname @ pg_finfo_typname (_ctx, typ: Oid) -> int4 {
+        let cat = catalog::Type::new(typ).unwrap();
+        panic!("type {} is called {:?}", typ.0, cat.name());
     }
 }

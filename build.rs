@@ -22,5 +22,7 @@ fn main() {
         writeln!(f, "const FLOAT8_BYVAL: bool = {};", pgbuild::float8_byval() != 0).unwrap();
         writeln!(f, "const LEN_SCANKEYDATA: usize = {};", pgbuild::len_scankeydata()).unwrap();
         writeln!(f, "const LEN_SIGJMPBUF: usize = {};", pgbuild::len_sigjmpbuf()).unwrap();
+
+        writeln!(f, "const CACHEID_TYPEOID: i32 = {};", pgbuild::cacheid_typeoid()).unwrap();
     }
 }

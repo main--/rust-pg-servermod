@@ -7,4 +7,6 @@ extern "C" {
     pub fn float8_byval() -> u32;
     pub fn len_scankeydata() -> u32;
     pub fn len_sigjmpbuf() -> u32;
+
+    pub fn cacheid_typeoid() -> u32;
 }
