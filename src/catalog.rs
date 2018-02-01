@@ -39,8 +39,18 @@ struct HeapTuple {
 }
 
 extern {
+    // TODO: figure out precise version boundaries here
+    #[cfg(postgres = "10.0")]
+    fn SearchSysCache1(cacheid: SysCacheId, key1: Datum) -> *const HeapTuple;
+    #[cfg(postgres = "9.5")]
     fn SearchSysCache(cacheid: SysCacheId, key1: Datum, key2: Datum, key3: Datum, key4: Datum) -> *const HeapTuple;
     fn ReleaseSysCache(tuple: *const HeapTuple);
+}
+
+#[cfg(postgres = "9.5")]
+unsafe fn SearchSysCache1(cacheid: SysCacheId, key1: Datum) -> *const HeapTuple {
+    let z = Datum::from(0);
+    SearchSysCache(cacheid, key1, z, z, z)
 }
 
 struct pg_type {
@@ -55,8 +65,7 @@ pub struct Type {
 impl Type {
     pub fn new(oid: Oid) -> Option<Type> {
         unsafe {
-            let z = Datum::from(0);
-            let tup = SearchSysCache(SysCacheId::Type, oid.into(), z, z, z);
+            let tup = SearchSysCache1(SysCacheId::Type, oid.into());
             if tup.is_null() {
                 None
             } else {
