@@ -3,6 +3,8 @@ use std::os::raw::{c_void, c_char};
 
 use super::Datum;
 use varlena::BaseVarlena;
+use alloc::MemoryContext;
+use error;
 
 mod hack { pub type bool_hack = bool; }
 pub type bool = self::hack::bool_hack;
@@ -61,6 +63,57 @@ impl Deref for bytea {
 
 pub struct bytea(BaseVarlena);
 pub struct text(BaseVarlena);
+
+#[repr(i32)]
+enum PgEncoding {
+    SqlAscii = 0,
+    Utf8 = 6,
+    // rest is todo
+    // fixme: generate these from pgbuild
+}
+
+extern "C" {
+    fn GetDatabaseEncoding() -> i32;
+    fn pg_server_to_any(s: *const c_char, len: i32, encoding: i32) -> *const c_char;
+}
+
+
+
+use std::str;
+use std::ffi::CStr;
+impl text {
+    pub fn to_string<'a, 'b>(&'a self, alloc: &'b MemoryContext) -> Result<&'a str, &'b mut str> {
+        unsafe {
+            let my_data: &bytea = ::std::mem::transmute(self);
+            let myptr = my_data.as_ptr() as *const c_char;
+            alloc.set_current();
+            let converted = error::convert_postgres_error(|| pg_server_to_any(myptr, my_data.len() as i32, PgEncoding::Utf8 as i32));
+            if converted == myptr {
+                Ok(str::from_utf8_unchecked(my_data))
+            } else {
+                // poor man's strlen (can't do this naturally through CStr - would have to mut-transmute the &str)
+                let newlen = CStr::from_ptr(converted).to_bytes().len();
+                Err(str::from_utf8_unchecked_mut(slice::from_raw_parts_mut(converted as *mut u8, newlen)))
+            }
+        }
+    }
+
+    // edgecase: for invalid utf, to_string should error while this just returns None
+    // is that a problem?
+    pub fn to_str(&self) -> Option<&str> {
+        unsafe {
+            let my_data: &bytea = ::std::mem::transmute(self);
+            let encoding = GetDatabaseEncoding();
+            if encoding == PgEncoding::Utf8 as i32 {
+                Some(str::from_utf8_unchecked(my_data))
+            } else if encoding == PgEncoding::SqlAscii as i32 {
+                str::from_utf8(my_data).ok()
+            } else {
+                None
+            }
+        }
+    }
+}
 
 pub type name = [c_char; 64]; // FIXME wtf
 

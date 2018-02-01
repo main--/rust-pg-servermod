@@ -1,7 +1,7 @@
 use std::os::raw::c_char;
 use std::ffi::CStr;
 use Datum;
-use types::Oid;
+use types::{name, Oid};
 
 // TODO: pg10 has exported SearchSysCache1, but 9.5 does not
 
@@ -44,7 +44,7 @@ extern {
 }
 
 struct pg_type {
-    typname: [c_char; ::NAMEDATALEN],
+    typname: name,
     // ...
 }
 

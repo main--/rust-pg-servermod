@@ -175,3 +175,12 @@ CREATE_STRICT_FUNCTION! {
         panic!("type {} is called {:?}", typ.0, cat.name());
     }
 }
+
+
+CREATE_STRICT_FUNCTION! {
+    fn ptext @ pg_finfo_ptext (_ctx, a: text, b: text) -> int4 {
+        let a: i32 = a.to_str()?.parse().ok()?;
+        let b: i32 = b.to_str()?.parse().ok()?;
+        Some(a + b)
+    }
+}

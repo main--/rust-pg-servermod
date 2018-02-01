@@ -186,10 +186,8 @@ impl<'a: 'b, 'b> ExactSizeIterator for ArgsIter<'a, 'b> {
 
 #[macro_export]
 macro_rules! lifetimeize {
-//    (bytea, $lt:expr) => ( $crate::types::bytea<$lt> );
-    //    (int4, $lt:expr) => ( $crate::types::int4 );
-    //($other:ident, $lt:expr) => ( $crate::types::int4 );
     (bytea) => ( &'a $crate::types::bytea );
+    (text) => ( &'a $crate::types::text );
     ($other:ident) => ( $crate::types::$other );
 }
 
