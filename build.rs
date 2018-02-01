@@ -24,5 +24,9 @@ fn main() {
         writeln!(f, "const LEN_SIGJMPBUF: usize = {};", pgbuild::len_sigjmpbuf()).unwrap();
 
         writeln!(f, "const CACHEID_TYPEOID: i32 = {};", pgbuild::cacheid_typeoid()).unwrap();
+
+
+        assert_ne!(pgbuild::float4_byval(), 0);
+        assert_ne!(pgbuild::float8_byval(), 0);
     }
 }
