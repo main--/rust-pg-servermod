@@ -11,6 +11,7 @@ include!(concat!(env!("OUT_DIR"), "/basedefs.rs"));
 
 // external modules
 pub mod alloc;
+#[macro_use] pub mod varlena;
 pub mod types;
 #[macro_use] pub mod export;
 pub mod catalog;
@@ -119,9 +120,7 @@ CREATE_FUNCTION! {
             *a = b;
         }
         *newbuf.last_mut().unwrap() = 42;
-        Some(newbuf.into())
-        //pgpanic!("val = {}", v?[1]);
-            //None
+        Some(newbuf)
     }
 }
 
@@ -145,7 +144,7 @@ CREATE_FUNCTION! {
         let mut newbuf = ctx.alloc_bytea(cmp::max(b.len(), required_size));
         newbuf[..b.len()].copy_from_slice(&b);
         newbuf[byte_index] |= 1 << (i % 8);
-        Some(newbuf.into())
+        Some(newbuf)
     }
 }
 

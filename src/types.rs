@@ -1,8 +1,11 @@
 // contract: everything in here is StaticallyTyped + FromDatum + Into<Datum>
+use std::os::raw::{c_void, c_char};
+
 use super::Datum;
+use varlena::BaseVarlena;
 
 mod hack { pub type bool_hack = bool; }
-pub type bool = self::hack::bool_hack; // super::primitives_hack::bool;
+pub type bool = self::hack::bool_hack;
 pub type char = i8;
 pub type int8 = i64;
 pub type int2 = i16;
@@ -14,49 +17,12 @@ pub struct Oid(pub u32);
 // TODO: rename Oid to oid
 pub type oid = Oid;
 
-// TODO: some support to get type names. how you ask?
-// simple:
-// HeapTuple t = SearchSysCache1(TYPEOID, ObjectIdGetDatum(oid));
-// if (!IsHeapTupleValid(t)) ...
-// Form_pg_type typdesc = (Form_pg_type) GETSTRUCT(t);
-// typedesc->typname
-// voila your cstring name right there
 
 
 
-// on varlena:
-// all variable-size data structures in postgres (even custom ones) must use the varlena format
-// it consists of either a 1-byte or a 4-byte header followed by the payload
-// if the first header bit is unset, it's a 1-byte header wherein the remaining bits specify the varlena's length
-// else it's a 4-byte which has an additional flag bit for TOAST which we ignore (not implemented) followed by again, the length
-// NB length is always the entire length including header
-//
-// Because we can build any variable-length type from a &[u8], we use bytea as base type.
-// This does not reflect postgresql's actual design but is merely a shortcut in our implementation.
-
-
-#[derive(Clone, Copy)] // fixme not private
-pub struct bytea_mut<'a>(pub *mut super::c_void, pub ::std::marker::PhantomData<&'a mut [u8]>);
-impl<'a> From<bytea_mut<'a>> for bytea<'a> { fn from(b: bytea_mut<'a>) -> bytea<'a> { bytea(b.0, ::std::marker::PhantomData) } }
-impl<'a> Deref for bytea_mut<'a> {
-    type Target = [u8];
-
-    fn deref(&self) -> &[u8] {
-        let ptr = self.0 as *mut u8;
-        unsafe {
-            let head8 = *ptr;
-            if (head8 & 0x01) != 0 {
-                panic!("Attempted to read from a bytea_mut with 1-byte header.");
-            }
-
-            let len = *(ptr as *const u32) >> 2; // total size
-            &mut slice::from_raw_parts_mut(ptr, len as usize)[4..] // skip header
-        }
-    }
-}
-impl<'a> DerefMut for bytea_mut<'a> {
+impl DerefMut for bytea {
     fn deref_mut(&mut self) -> &mut [u8] {
-        let ptr = self.0 as *mut u8;
+        let ptr = self as *mut _ as *mut u8;
         unsafe {
             let head8 = *ptr;
             if (head8 & 0x01) != 0 {
@@ -70,17 +36,13 @@ impl<'a> DerefMut for bytea_mut<'a> {
 }
 
 
-// TODO all byref-types need lifetimes (not just this one)
-#[derive(Clone, Copy)]
-pub struct bytea<'a>(*mut super::c_void, ::std::marker::PhantomData<&'a [u8]>);
-
 use std::ops::{Deref, DerefMut};
 use std::slice;
-impl<'a> Deref for bytea<'a> {
+impl Deref for bytea {
     type Target = [u8];
     
     fn deref(&self) -> &[u8] {
-        let ptr = self.0 as *mut u8;
+        let ptr = self as *const _ as *mut u8;
         unsafe {
             // FIXME: we assume little endian
             let head8 = *ptr;
@@ -97,15 +59,17 @@ impl<'a> Deref for bytea<'a> {
     }
 }
 
-pub type name = [i8; 64]; // FIXME wtf
-pub struct text<'a>(bytea<'a>);
+pub struct bytea(BaseVarlena);
+pub struct text(BaseVarlena);
+
+pub type name = [c_char; 64]; // FIXME wtf
 
 pub type void = ();
 
-impl<'a> From<text<'a>> for Datum<'a> { fn from(t: text<'a>) -> Datum<'a> { t.0.into() } }
-impl<'a> FromDatum<'a> for text<'a> { unsafe fn from(d: Datum<'a>) -> text<'a> { text(FromDatum::from(d)) } }
-impl<'a> From<bytea<'a>> for Datum<'a> { fn from(b: bytea<'a>) -> Datum<'a> { Datum::create(b. 0 as usize) } }
-impl<'a> FromDatum<'a> for bytea<'a> { unsafe fn from(d: Datum<'a>) -> bytea<'a> { bytea(super::pg_detoast_datum_packed(d.0 as *mut _), ::std::marker::PhantomData) } }
+impl<'a> From<&'a text> for Datum<'a> { fn from(b: &'a text) -> Datum<'a> { Datum::create(b as *const _ as *const c_void as usize) } }
+impl<'a> FromDatum<'a> for &'a text { unsafe fn from(d: Datum<'a>) -> &'a text { dst_ptrcast!(super::pg_detoast_datum_packed(d.0 as *mut _)) } }
+impl<'a> From<&'a bytea> for Datum<'a> { fn from(b: &'a bytea) -> Datum<'a> { Datum::create(b as *const _ as *const c_void as usize) } }
+impl<'a> FromDatum<'a> for &'a bytea { unsafe fn from(d: Datum<'a>) -> &'a bytea { dst_ptrcast!(super::pg_detoast_datum_packed(d.0 as *mut _)) } }
 
 impl<'a> From<oid> for Datum<'a> { fn from(i: oid) -> Datum<'a> { Datum::create(i.0 as usize) } }
 impl<'a> FromDatum<'a> for oid { unsafe fn from(d: Datum<'a>) -> oid { Oid(d.0 as u32) } }
@@ -124,13 +88,13 @@ pub trait FromDatum<'a> {
 
 pub unsafe trait StaticallyTyped { const OID: Oid; }
 unsafe impl StaticallyTyped for bool { const OID: Oid = Oid(16); }
-unsafe impl<'a> StaticallyTyped for bytea<'a> { const OID: Oid = Oid(17); }
+unsafe impl StaticallyTyped for bytea { const OID: Oid = Oid(17); }
 unsafe impl StaticallyTyped for char { const OID: Oid = Oid(18); }
 unsafe impl StaticallyTyped for name { const OID: Oid = Oid(19); }
 unsafe impl StaticallyTyped for int8 { const OID: Oid = Oid(20); }
 unsafe impl StaticallyTyped for int2 { const OID: Oid = Oid(21); }
 unsafe impl StaticallyTyped for int4 { const OID: Oid = Oid(23); }
-unsafe impl<'a> StaticallyTyped for text<'a> { const OID: Oid = Oid(25); }
+unsafe impl StaticallyTyped for text { const OID: Oid = Oid(25); }
 unsafe impl StaticallyTyped for Oid { const OID: Oid = Oid(26); }
 
 // void type:

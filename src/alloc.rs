@@ -4,9 +4,9 @@ use std::{ptr, slice};
 use std::mem::ManuallyDrop;
 
 extern "C" {
-    #[cfg(postgres = "10.0")]
-    fn GenerationContextCreate(parent: *mut c_void, name: *const c_char, flags: i32, block_size: usize) -> *mut c_void;
-    #[cfg(postgres = "9.5")]
+    //#[cfg(postgres = "10.0")]
+    //fn GenerationContextCreate(parent: *mut c_void, name: *const c_char, flags: i32, block_size: usize) -> *mut c_void;
+    #[cfg(any(postgres = "9.5", postgres = "10.0"))]
     fn AllocSetContextCreate(parent: *mut c_void, name: *const c_char, min_size: usize, init_size: usize, max_size: usize) -> *mut c_void;
 
     fn MemoryContextAlloc(context: *mut c_void, size: usize) -> *mut c_void;

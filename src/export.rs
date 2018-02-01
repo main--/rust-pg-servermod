@@ -4,7 +4,7 @@ use std::mem::ManuallyDrop;
 use Datum;
 use catalog;
 use alloc::{self, MemoryContext};
-use types::{StaticallyTyped, FromDatum, Oid, bytea_mut};
+use types::{StaticallyTyped, FromDatum, Oid, bytea};
 
 extern "C" {
     pub fn get_fn_expr_argtype(flinfo: *mut FmgrInfo, argnum: i32) -> Oid;
@@ -189,7 +189,7 @@ macro_rules! lifetimeize {
 //    (bytea, $lt:expr) => ( $crate::types::bytea<$lt> );
     //    (int4, $lt:expr) => ( $crate::types::int4 );
     //($other:ident, $lt:expr) => ( $crate::types::int4 );
-    (bytea) => ( $crate::types::bytea<'a> );
+    (bytea) => ( &'a $crate::types::bytea );
     ($other:ident) => ( $crate::types::$other );
 }
 
@@ -204,13 +204,13 @@ impl<'a> FunctionCallContext<'a> {
         &self.fcinfo
     }
 
-    pub fn alloc_bytea(&self, len: usize) -> bytea_mut<'a> {
+    pub fn alloc_bytea(&self, len: usize) -> &'a mut bytea {
         unsafe {
             let size = len + 4;
             //let ptr = super::palloc0(size) as *mut u32;
             let ptr = self.allocator.alloc(size).as_mut_ptr() as *mut u32;
             *ptr = (size as u32) << 2;
-            bytea_mut(ptr as *mut _, ::std::marker::PhantomData)
+            dst_ptrcast!(ptr)
         }
     }
 }
