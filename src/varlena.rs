@@ -1,7 +1,7 @@
-use std::marker::PhantomData;
+/*use std::marker::PhantomData;
 use std::slice;
 
-use alloc::MemoryContext;
+use alloc::MemoryContext;*/
 
 // compare postgres.h for documentation on how this format works
 
@@ -9,7 +9,7 @@ use alloc::MemoryContext;
 // so instead we use a [u8; 0] to somehow make this a dst
 // this turns every reference into a fat ptr though which in turn requires more ugly hacks
 pub struct BaseVarlena {
-    inner: [u8],
+    _inner: [u8],
 }
 
 macro_rules! dst_ptrcast {

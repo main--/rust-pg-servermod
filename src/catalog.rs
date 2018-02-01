@@ -1,4 +1,3 @@
-use std::os::raw::c_char;
 use std::ffi::CStr;
 use Datum;
 use types::{name, Oid};

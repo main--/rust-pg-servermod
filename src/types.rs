@@ -19,7 +19,12 @@ pub struct Oid(pub u32);
 // TODO: rename Oid to oid
 pub type oid = Oid;
 
-
+// TODO: proper toast api in varlena.rs instead of this hack
+// FIXME: current impl is even wrong - this invocation relies on the current memory context
+// (we don't take one at all)
+extern "C" {
+    fn pg_detoast_datum_packed(p: *mut c_void) -> *mut c_void;
+}
 
 
 impl DerefMut for bytea {
@@ -120,9 +125,9 @@ pub type name = [c_char; 64]; // FIXME wtf
 pub type void = ();
 
 impl<'a> From<&'a text> for Datum<'a> { fn from(b: &'a text) -> Datum<'a> { Datum::create(b as *const _ as *const c_void as usize) } }
-impl<'a> FromDatum<'a> for &'a text { unsafe fn from(d: Datum<'a>) -> &'a text { dst_ptrcast!(super::pg_detoast_datum_packed(d.0 as *mut _)) } }
+impl<'a> FromDatum<'a> for &'a text { unsafe fn from(d: Datum<'a>) -> &'a text { dst_ptrcast!(pg_detoast_datum_packed(d.0 as *mut _)) } }
 impl<'a> From<&'a bytea> for Datum<'a> { fn from(b: &'a bytea) -> Datum<'a> { Datum::create(b as *const _ as *const c_void as usize) } }
-impl<'a> FromDatum<'a> for &'a bytea { unsafe fn from(d: Datum<'a>) -> &'a bytea { dst_ptrcast!(super::pg_detoast_datum_packed(d.0 as *mut _)) } }
+impl<'a> FromDatum<'a> for &'a bytea { unsafe fn from(d: Datum<'a>) -> &'a bytea { dst_ptrcast!(pg_detoast_datum_packed(d.0 as *mut _)) } }
 
 impl<'a> From<oid> for Datum<'a> { fn from(i: oid) -> Datum<'a> { Datum::create(i.0 as usize) } }
 impl<'a> FromDatum<'a> for oid { unsafe fn from(d: Datum<'a>) -> oid { Oid(d.0 as u32) } }
