@@ -34,40 +34,39 @@ pub unsafe extern "C" fn _PG_fini() {
 }
 
 #[inline(always)]
-pub unsafe fn convert_rust_panic<F: FnOnce() -> R + UnwindSafe, R>(f: F) -> R {
-    match panic::catch_unwind(f) {
-        Ok(x) => x,
-        Err(e) => convert_rust_panic_inner(e),
-    }
+pub fn convert_rust_panic<F: FnOnce() -> R + UnwindSafe, R>(f: F) -> R {
+    panic::catch_unwind(f).unwrap_or_else(|r| convert_rust_panic_inner(r))
 }
 
 #[inline(never)]
-unsafe fn convert_rust_panic_inner(e: Box<Any + Send>) -> ! {
-    let e = match e.downcast::<PgError>() {
-        Ok(pge) => pge.rethrow(), // this was a postgres error to begin with, just rethrow that
-        Err(e) => e,
-    };
+fn convert_rust_panic_inner(e: Box<Any + Send>) -> ! {
+    unsafe {
+        let e = match e.downcast::<PgError>() {
+            Ok(pge) => pge.rethrow(), // this was a postgres error to begin with, just rethrow that
+            Err(e) => e,
+        };
 
-    if errstart(20, ptr::null(), 0, rust_panic_funcname_ptr(), ptr::null()) != 0 {
-        // TODO: errcode or some shit
-        {
-            let text = e.downcast_ref::<&str>().cloned().or_else(|| e.downcast_ref::<String>().map(|s| &s[..])).unwrap_or("<no text>");
-            match CString::new(text) {
-                Ok(text_cs) => errmsg(b"%s\0" as *const _ as *const _, text_cs.as_ptr()),
-                Err(_) => errmsg(b"<string conversion error>\0" as *const _ as *const _),
+        if errstart(20, ptr::null(), 0, rust_panic_funcname_ptr(), ptr::null()) != 0 {
+            // TODO: errcode or some shit
+            {
+                let text = e.downcast_ref::<&str>().cloned().or_else(|| e.downcast_ref::<String>().map(|s| &s[..])).unwrap_or("<no text>");
+                match CString::new(text) {
+                    Ok(text_cs) => errmsg(b"%s\0" as *const _ as *const _, text_cs.as_ptr()),
+                    Err(_) => errmsg(b"<string conversion error>\0" as *const _ as *const _),
+                }
             }
-        }
 
-        // replace LAST_RUST_PANIC
-        let new_panic = Box::into_raw(Box::new(e));
-        let old_panic = LAST_RUST_PANIC.swap(new_panic, Ordering::Relaxed);
-        if !old_panic.is_null() {
-            drop(Box::from_raw(old_panic));
-        }
+            // replace LAST_RUST_PANIC
+            let new_panic = Box::into_raw(Box::new(e));
+            let old_panic = LAST_RUST_PANIC.swap(new_panic, Ordering::Relaxed);
+            if !old_panic.is_null() {
+                drop(Box::from_raw(old_panic));
+            }
 
-        errfinish(0);
+            errfinish(0);
+        }
+        self::unreachable::unreachable()
     }
-    self::unreachable::unreachable()
 }
 
 
@@ -160,29 +159,34 @@ impl Error for PgError {
     fn description(&self) -> &str { "Postgres error" }
 }
 
+#[inline]
 pub fn convert_postgres_error<F: FnOnce() -> R + UnwindSafe, R>(f: F) -> R {
-    catch_postgres_error(f).unwrap_or_else(|e| {
-        unsafe {
-            // check ptr equality for our magic funcname
-            if (*e.0).funcname == rust_panic_funcname_ptr() {
-                let ptr = LAST_RUST_PANIC.swap(ptr::null_mut(), Ordering::Relaxed);
-                assert!(!ptr.is_null());
-                let payload = Box::from_raw(ptr);
-
-                panic::resume_unwind(*payload)
-            } else {
-                // just throw as PgError
-                panic!(e)
-            }
-        }
-    })
+    catch_postgres_error(f).unwrap_or_else(|e| convert_postgres_error_inner(e))
 }
 
+#[inline(never)]
+fn convert_postgres_error_inner(e: PgError) -> ! {
+    unsafe {
+        // check ptr equality for our magic funcname
+        if (*e.0).funcname == rust_panic_funcname_ptr() {
+            let ptr = LAST_RUST_PANIC.swap(ptr::null_mut(), Ordering::Relaxed);
+            assert!(!ptr.is_null());
+            let payload = Box::from_raw(ptr);
+
+            panic::resume_unwind(*payload)
+        } else {
+            // just throw as PgError
+            panic!(e)
+        }
+    }
+}
+
+#[inline]
 pub fn catch_postgres_error<F: FnOnce() -> R + UnwindSafe, R>(f: F) -> Result<R, PgError> {
     unsafe {
         let save_exception_stack = PG_exception_stack;
         let save_context_stack = error_context_stack;
-        let mut jmpbuf = [0u8; ::LEN_SIGJMPBUF];
+        let mut jmpbuf: [u8; ::LEN_SIGJMPBUF] = mem::uninitialized();
         let ret = {
             if sigsetjmp(jmpbuf.as_mut_ptr(), 0) == 0 {
                 PG_exception_stack = jmpbuf.as_mut_ptr();
@@ -191,35 +195,27 @@ pub fn catch_postgres_error<F: FnOnce() -> R + UnwindSafe, R>(f: F) -> Result<R,
                 PG_exception_stack = save_exception_stack;
                 error_context_stack = save_context_stack;
 
-                // the hard part: catching an error
-                // because the concept of a "current memory context"
-                // is hard to encapsulate in Rust (esp. when we want to unwind down the stack),
-                // we create a new memory context just for this error data
-                /* This does not exist in 9.5
-                let mctx = GenerationContextCreate(ptr::null_mut(), // no parent allocator
-                                                   b"rust panic bridge allocator\0".as_ptr() as *const c_char, // name
-                                                   0, // no flags
-                                                   500); // block size of 500 (???)
-                 */
-                /*
-                let mctx = AllocSetContextCreate(ptr::null_mut(), // no parent allocator
-                                                 b"rust panic bridge allocator\0".as_ptr() as *const c_char, // name
-                                                 0,
-                                                 8192,
-                                                 8192 * 1024);
-                CurrentMemoryContext = mctx;
-                 */
-                let mctx = MemoryContext::create_allocset(None, 0, 8192, 8192 * 1024);
-                mctx.set_current();
-                mem::forget(mctx);
-
-                let err = PgError(CopyErrorData());
-                FlushErrorState();
-                Err(err)
+                Err(record_pg_error())
             }
         };
         PG_exception_stack = save_exception_stack;
         error_context_stack = save_context_stack;
         ret
     }
+}
+
+#[inline(never)]
+unsafe fn record_pg_error() -> PgError {
+    // the hard part: catching an error
+    // because the concept of a "current memory context"
+    // is hard to encapsulate in Rust (esp. when we want to unwind down the stack),
+    // we create a new memory context just for this error data
+
+    let mctx = MemoryContext::create_allocset(None, 0, 8192, 8192 * 1024);
+    mctx.set_current();
+    mem::forget(mctx);
+
+    let err = PgError(CopyErrorData());
+    FlushErrorState();
+    err
 }
