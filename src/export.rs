@@ -1,10 +1,11 @@
 use std::os::raw::c_void;
-use std::mem::ManuallyDrop;
+use std::mem::{self, ManuallyDrop};
 
 use Datum;
 use catalog;
 use alloc::{self, MemoryContext};
 use types::{StaticallyTyped, FromDatum, Oid, bytea};
+use varlena::Toasted;
 
 extern "C" {
     pub fn get_fn_expr_argtype(flinfo: *mut FmgrInfo, argnum: i32) -> Oid;
@@ -186,8 +187,8 @@ impl<'a: 'b, 'b> ExactSizeIterator for ArgsIter<'a, 'b> {
 
 #[macro_export]
 macro_rules! lifetimeize {
-    (bytea) => ( &'a $crate::types::bytea );
-    (text) => ( &'a $crate::types::text );
+    (bytea) => ( $crate::varlena::Toasted<'a, $crate::types::bytea> );
+    (text) => ( $crate::varlena::Toasted<'a, $crate::types::text> );
     ($other:ident) => ( $crate::types::$other );
 }
 
@@ -202,13 +203,18 @@ impl<'a> FunctionCallContext<'a> {
         &self.fcinfo
     }
 
+    pub fn allocator(&self) -> &MemoryContext<'static> {
+        &self.allocator
+    }
+
     pub fn alloc_bytea(&self, len: usize) -> &'a mut bytea {
+        #[allow(mutable_transmutes)]
         unsafe {
             let size = len + 4;
-            //let ptr = super::palloc0(size) as *mut u32;
             let ptr = self.allocator.alloc(size).as_mut_ptr() as *mut u32;
             *ptr = (size as u32) << 2;
-            dst_ptrcast!(ptr)
+            let shared: &'a bytea = <Toasted<bytea> as FromDatum>::from(Datum::create(ptr as usize)).to_varlena().unwrap();
+            mem::transmute(shared)
         }
     }
 }

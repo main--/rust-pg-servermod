@@ -1,7 +1,8 @@
-/*use std::marker::PhantomData;
-use std::slice;
+use std::marker::PhantomData;
 
-use alloc::MemoryContext;*/
+use Datum;
+use types::FromDatum;
+use alloc::MemoryContext;
 
 // compare postgres.h for documentation on how this format works
 
@@ -12,15 +13,20 @@ pub struct BaseVarlena {
     _inner: [u8],
 }
 
-macro_rules! dst_ptrcast {
-    ($ptr:expr) => (&mut *(::std::slice::from_raw_parts_mut($ptr as *const u8 as *mut u8, 0) as *mut _ as *mut _))
+pub unsafe trait Varlena {
+    unsafe fn dst_ptrcast<'a, P>(ptr: *const P) -> &'a mut Self;
 }
 
 
-// TODO: implement toasting
-/*
-
-
+macro_rules! impl_varlena {
+    ($name:ident) => {
+        unsafe impl $crate::varlena::Varlena for $name {
+            unsafe fn dst_ptrcast<'a, P>(ptr: *const P) -> &'a mut Self {
+                &mut *(::std::slice::from_raw_parts_mut(ptr as *const u8 as *mut u8, 0) as *mut _ as *mut _)
+            }
+        }
+    }
+}
 
 enum Header {
     External, // 1B_E aka TOAST
@@ -29,28 +35,71 @@ enum Header {
     LargeCompressed(u32), // 4B_C
 }
 
+#[repr(C)]
+pub struct Toasted<'a, T: 'a + Varlena + ?Sized> {
+    ptr: *const u8,
+    marker: PhantomData<&'a T>,
+}
+
+impl<'a, T: 'a + Varlena + ?Sized> FromDatum<'a> for Toasted<'a, T> {
+    unsafe fn from(d: Datum<'a>) -> Toasted<'a, T> {
+        Toasted {
+            ptr: d.0 as *const u8,
+            marker: PhantomData,
+        }
+    }
+}
+impl<'a, T: 'a + Varlena + ?Sized> From<Toasted<'a, T>> for Datum<'a> {
+    fn from(b: Toasted<'a, T>) -> Datum<'a> {
+        Datum::create(b.ptr as usize)
+    }
+}
+impl<'a, T: 'a + Varlena + ?Sized> From<&'a T> for Toasted<'a, T> {
+    fn from(r: &'a T) -> Toasted<'a, T> {
+        Toasted {
+            ptr: r as *const _ as *const u8,
+            marker: PhantomData,
+        }
+    }
+}
+impl<'a, T: 'a + Varlena + ?Sized> From<&'a mut T> for Toasted<'a, T> {
+    fn from(r: &'a mut T) -> Toasted<'a, T> {
+        Toasted {
+            ptr: r as *const _ as *const u8,
+            marker: PhantomData,
+        }
+    }
+}
+
 extern "C" {
     fn pg_detoast_datum_copy(datum: *const u8) -> *mut u8;
 }
 
-impl<'a> Varlena<'a> {
-    pub fn try_open(&self) -> Option<&[u8]> {
+impl<'a, T: 'a + Varlena + ?Sized> Toasted<'a, T> {
+    pub fn to_varlena(&self) -> Option<&'a T> {
         unsafe {
             match self.header() {
-                Header::Small(s) => Some(&slice::from_raw_parts(self.ptr, s as usize)[1..]),
-                Header::Large(s) => Some(&slice::from_raw_parts(self.ptr, s as usize)[4..]),
+                Header::Small(_) | Header::Large(_) => {
+                    let r: &'a T = T::dst_ptrcast(self.ptr);
+                    Some(r)
+                }
                 _ => None,
             }
         }
     }
 
-    pub fn copy_detoast<'b, 'c>(&self, allocator: &'b MemoryContext<'c>) -> OwnedVarlena<'b> {
+    pub fn copy_detoast<'b, 'c>(&self, allocator: &'b MemoryContext<'c>) -> &'b mut T {
         unsafe {
             allocator.set_current();
-            OwnedVarlena { ptr: pg_detoast_datum_copy(self.ptr), lifetime: PhantomData }
+            T::dst_ptrcast(pg_detoast_datum_copy(self.ptr))
         }
     }
 
+    pub fn detoast_packed<'b, 'c, 'd>(&self, allocator: &'c MemoryContext<'d>) -> &'b T where 'c: 'b, 'a: 'b {
+        self.to_varlena().unwrap_or_else(|| self.copy_detoast(allocator))
+    }
+
+    /*
     pub fn detoast_packed<'b, 'c: 'b, 'd>(&self, allocator: &'c MemoryContext<'d>) -> VarlenaCow<'b> where 'a: 'b {
         unsafe {
             match self.header() {
@@ -59,27 +108,31 @@ impl<'a> Varlena<'a> {
             }
         }
     }
-    
-    #[cfg(target_endian = "little")]
-    unsafe fn header(&self) -> Header {
-        let first = *self.ptr;
-        match first & 0x03 {
-            0x00 => Header::Large((*(self.ptr as *const u32)) >> 2),
-            0x02 => Header::LargeCompressed((*(self.ptr as *const u32)) >> 2),
-            _ if first == 0x01 => Header::External,
-            _ => Header::Small(first >> 1),
-        }
-    }
+     */
 
-    #[cfg(target_endian = "big")]
     unsafe fn header(&self) -> Header {
-        let first = *self.ptr;
-        match first & 0xC0 {
-            0x00 => Header::Large((*(self.ptr as *const u32)) >> 2),
-            0x40 => Header::LargeCompressed((*(self.ptr as *const u32)) >> 2),
-            _ if first == 0x80 => Header::External,
-            _ => Header::Small(first & 0x7f),
-        }
+        header(self.ptr)
     }
 }
-*/
+
+#[cfg(target_endian = "little")]
+unsafe fn header(ptr: *const u8) -> Header {
+    let first = *ptr;
+    match first & 0x03 {
+        0x00 => Header::Large((*(ptr as *const u32)) >> 2),
+        0x02 => Header::LargeCompressed((*(ptr as *const u32)) >> 2),
+        _ if first == 0x01 => Header::External,
+        _ => Header::Small(first >> 1),
+    }
+}
+
+#[cfg(target_endian = "big")]
+unsafe fn header(ptr: *const u8) -> Header {
+    let first = *ptr;
+    match first & 0xC0 {
+        0x00 => Header::Large((*(ptr as *const u32)) & 0x3FFFFFFF),
+        0x40 => Header::LargeCompressed((*(ptr as *const u32)) & 0x3FFFFFFF),
+        _ if first == 0x80 => Header::External,
+        _ => Header::Small(first & 0x7f),
+    }
+}

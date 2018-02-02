@@ -53,18 +53,22 @@ CREATE_FUNCTION! {
 
 CREATE_FUNCTION! {
     fn voidfun @ pg_finfo_voidfun (ctx, v: bytea) -> bytea {
-        let mut newbuf = ctx.alloc_bytea(v?.len() + 1);
-        for (a, &b) in newbuf.iter_mut().zip(v?.iter()) {
+        let v = v?.detoast_packed(ctx.allocator());
+
+        let mut newbuf = ctx.alloc_bytea(v.len() + 1);
+        for (a, &b) in newbuf.iter_mut().zip(v.iter()) {
             *a = b;
         }
         *newbuf.last_mut().unwrap() = 42;
-        Some(newbuf)
+        Some(newbuf.into())
     }
 }
 
 CREATE_FUNCTION! {
-    fn demo @ pg_finfo_demo (_ctx, b: bytea, i: int4) -> int8 {
-        let sum: i64 = b?.iter().map(|&x| x as i64).sum();
+    fn demo @ pg_finfo_demo (ctx, b: bytea, i: int4) -> int8 {
+        let b = b?.detoast_packed(ctx.allocator());
+
+        let sum: i64 = b.iter().map(|&x| x as i64).sum();
         Some(sum + (i? as i64) + 42)
     }
 }
@@ -72,23 +76,27 @@ CREATE_FUNCTION! {
 CREATE_FUNCTION! {
     fn rbitset_add @ pg_finfo_rbitset_add (ctx, b: bytea, i: int4) -> bytea {
         use std::cmp;
-        let b = b?;
+
+        let b = b?.detoast_packed(ctx.allocator());
         let i = i?;
         if i < 0 { return None; }
 
         let byte_index = (i / 8) as usize;
         let required_size = byte_index + 1;
-        
+
         let mut newbuf = ctx.alloc_bytea(cmp::max(b.len(), required_size));
         newbuf[..b.len()].copy_from_slice(&b);
         newbuf[byte_index] |= 1 << (i % 8);
-        Some(newbuf)
+        Some(newbuf.into())
     }
 }
 
 CREATE_FUNCTION! {
-    fn rbitand_count @ pg_finfo_rbitand_count (_ctx, a: bytea, b: bytea) -> int4 {
-        let sum: u32 = a?.iter().cloned().zip(b?.iter().cloned()).map(|(a, b)| (a & b).count_ones()).sum();
+    fn rbitand_count @ pg_finfo_rbitand_count (ctx, a: bytea, b: bytea) -> int4 {
+        let a = a?.detoast_packed(ctx.allocator());
+        let b = b?.detoast_packed(ctx.allocator());
+
+        let sum: u32 = a.iter().cloned().zip(b.iter().cloned()).map(|(a, b)| (a & b).count_ones()).sum();
         Some(sum as i32)
     }
 }
@@ -118,7 +126,16 @@ CREATE_STRICT_FUNCTION! {
 
 
 CREATE_STRICT_FUNCTION! {
-    fn ptext @ pg_finfo_ptext (_ctx, a: text, b: text) -> int4 {
+    fn spass @ pg_finfo_spass (_ctx, a: text) -> text {
+        Some(a)
+    }
+}
+
+CREATE_STRICT_FUNCTION! {
+    fn ptext @ pg_finfo_ptext (ctx, a: text, b: text) -> int4 {
+//        let a = a.to_varlena()?;
+        let a = a.copy_detoast(ctx.allocator());
+        let b = b.to_varlena()?;
         let a: i32 = a.to_str()?.parse().ok()?;
         let b: i32 = b.to_str()?.parse().ok()?;
         Some(a + b)
