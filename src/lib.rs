@@ -15,6 +15,7 @@ pub mod types;
 #[macro_use] pub mod export;
 pub mod catalog;
 pub mod index;
+pub mod heap;
 
 // macro-internal modules
 #[doc(hidden)] pub mod magic;
@@ -24,7 +25,7 @@ pub mod index;
 
 // TODO: repr(transparent) EVERYWHERE, esp. here
 #[repr(C)]
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct Datum<'a>(usize, ::std::marker::PhantomData<&'a ()>);
 impl<'a> Datum<'a> {
     pub fn create(value: usize) -> Datum<'a> {
@@ -121,5 +122,19 @@ CREATE_STRICT_FUNCTION! {
         let a: i32 = a.to_str()?.parse().ok()?;
         let b: i32 = b.to_str()?.parse().ok()?;
         Some(a + b)
+    }
+}
+
+CREATE_STRICT_FUNCTION! {
+    fn scanheap @ pg_finfo_scanheap(_ctx, id: oid) -> int4 {
+        let heap = heap::Heap::open(id);
+        let scan = heap.scan();
+        for x in scan {
+            //x.deform();
+            //panic!("{:?}", x.deform());
+        }
+        Some(42)
+        //let count = scan.count();
+        //Some(count as i32)
     }
 }
