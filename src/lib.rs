@@ -14,6 +14,7 @@ pub mod alloc;
 pub mod types;
 #[macro_use] pub mod export;
 pub mod catalog;
+mod relation;
 pub mod index;
 pub mod heap;
 pub mod interrupt;
@@ -150,6 +151,21 @@ CREATE_STRICT_FUNCTION! {
         let mut scan = heap.scan();
 
         for x in scan.take(100) {
+            println!("{:?}", x.deform());
+        }
+
+        Some(42)
+    }
+}
+
+CREATE_STRICT_FUNCTION! {
+    fn scanindex @ pg_finfo_scanindex(_ctx, heap: oid, index: oid, col: int4, val: int4) -> int4 {
+        let heap = heap::Heap::open(heap);
+        let index = index::Index::open(index);
+        let keys = [index::ScanKey::new(col as u16, val as usize)];
+        let mut scan = index.scan(&heap, &keys);
+
+        for x in scan.take(10) {
             println!("{:?}", x.deform());
         }
 

@@ -4,20 +4,10 @@ use std::ptr;
 use types::Oid;
 use error;
 use Datum;
+use relation::{Relation, RawTupleDesc, GetTransactionSnapshot};
 
-#[repr(C, packed)]
-struct Relation {
-    _pad: [u8; ::RELATT_OFFSET],
-    td: *const RawTupleDesc,
-}
 type HeapScanDesc = *mut c_void;
 
-#[repr(C, packed)]
-struct RawTupleDesc {
-    natts: i32,
-    tdtypeid: Oid,
-    // ...
-}
 extern "C" {
     fn heap_open(relation: Oid, lockmode: i32) -> *const Relation;
     fn relation_close(relation: *const Relation, lockmode: i32);
@@ -25,17 +15,13 @@ extern "C" {
     fn heap_beginscan(relation: *const Relation, snapshot: *mut c_void, nkeys: i32, scankeys: *mut u8) -> HeapScanDesc;
     //fn heap_rescan(scan: HeapScanDesc, scankeys: *mut u8);
     fn heap_getnext(scan: HeapScanDesc, direction: i32) -> *const HeapTupleData<'static>;
-
     fn heap_endscan(scan: HeapScanDesc);
-
-    fn GetTransactionSnapshot() -> *mut c_void;
-    //fn ScanKeyInit(entry: *mut u8, attr_num: u16, strat_num: u16, regproc: u32, arg: usize);
 
     fn heap_deform_tuple(tuple: *const HeapTupleData, desc: *const RawTupleDesc, values: *mut Datum, isnull: *mut bool);
 }
 
-
-pub struct Heap(*const Relation);
+// FIXME private member
+pub struct Heap(pub(crate) *const Relation);
 pub struct HeapScan<'a> {
     ptr: HeapScanDesc,
     tupledesc: *const RawTupleDesc,
@@ -82,13 +68,14 @@ struct HeapTupleHeader {
 }
 
 pub struct HeapTuple<'a> {
-    data: HeapTupleData<'a>,
-    tupledesc: *const RawTupleDesc,
+    pub(crate) data: HeapTupleData<'a>,
+    pub(crate) tupledesc: *const RawTupleDesc,
 }
 
+// FIXME: make private
 #[repr(C)]
 #[derive(Clone, Copy)]
-struct HeapTupleData<'a> {
+pub(crate) struct HeapTupleData<'a> {
     t_len: u32,
     t_self: ItemPointerData,
     t_tableOid: Oid,
