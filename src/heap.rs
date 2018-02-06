@@ -145,8 +145,7 @@ impl<'a> Iterator for HeapScan<'a> {
 impl<'a> Drop for HeapScan<'a> {
     fn drop(&mut self) {
         unsafe {
-            // TODO: care double panic
-            error::convert_postgres_error(|| heap_endscan(self.ptr))
+            error::convert_postgres_error_dtor(|| heap_endscan(self.ptr))
         }
     }
 }
@@ -154,8 +153,7 @@ impl<'a> Drop for HeapScan<'a> {
 impl Drop for Heap {
     fn drop(&mut self) {
         unsafe {
-            // TODO: care double panic
-            error::convert_postgres_error(|| relation_close(self.0, 1))
+            error::convert_postgres_error_dtor(|| relation_close(self.0, 1))
         }
     }
 }

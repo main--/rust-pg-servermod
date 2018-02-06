@@ -1,7 +1,7 @@
 pub extern crate unreachable;
 
 use std::os::raw::c_char;
-use std::{ptr, mem};
+use std::{ptr, mem, thread};
 use std::ffi::CString;
 use std::panic::{self, UnwindSafe};
 use std::error::Error;
@@ -162,6 +162,17 @@ impl Error for PgError {
 #[inline]
 pub fn convert_postgres_error<F: FnOnce() -> R + UnwindSafe, R>(f: F) -> R {
     catch_postgres_error(f).unwrap_or_else(|e| convert_postgres_error_inner(e))
+}
+#[inline]
+pub fn convert_postgres_error_dtor<F: FnOnce() + UnwindSafe>(f: F) {
+    catch_postgres_error(f).unwrap_or_else(|e| {
+        // this guard is critical to avoid double panics (we /really/ don't want to abort a backend)
+        if thread::panicking() {
+            return;
+        }
+
+        convert_postgres_error_inner(e)
+    })
 }
 
 #[inline(never)]
