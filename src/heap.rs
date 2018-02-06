@@ -1,21 +1,19 @@
-use std::os::raw::{c_void, c_char};
+use std::os::raw::c_void;
 use std::marker::PhantomData;
 use std::ptr;
 use types::Oid;
 use error;
 use Datum;
 
-// prime example for extern types, oh well
-//type Relation = *mut c_void;
 #[repr(C, packed)]
 struct Relation {
     _pad: [u8; ::RELATT_OFFSET],
     td: *const RawTupleDesc,
 }
 type HeapScanDesc = *mut c_void;
-//type TupleDesc = *mut c_void;
+
 #[repr(C, packed)]
-pub struct RawTupleDesc {
+struct RawTupleDesc {
     natts: i32,
     tdtypeid: Oid,
     // ...
@@ -28,20 +26,12 @@ extern "C" {
     //fn heap_rescan(scan: HeapScanDesc, scankeys: *mut u8);
     fn heap_getnext(scan: HeapScanDesc, direction: i32) -> *const HeapTupleData<'static>;
 
-    //fn index_getnext_tid(scan: IndexScanDesc, direction: i32) -> *mut c_void; // returns ItemPointer
-
     fn heap_endscan(scan: HeapScanDesc);
 
     fn GetTransactionSnapshot() -> *mut c_void;
     //fn ScanKeyInit(entry: *mut u8, attr_num: u16, strat_num: u16, regproc: u32, arg: usize);
 
-    // FIXME: don't use deprecated shit
-    //fn RelationNameGetTupleDesc(relname: *const c_char) -> *const RawTupleDesc;
-    //fn BlessTupleDesc(desc: *const RawTupleDesc) -> *const RawTupleDesc;
     fn heap_deform_tuple(tuple: *const HeapTupleData, desc: *const RawTupleDesc, values: *mut Datum, isnull: *mut bool);
-
-    //fn lookup_rowtype_tupdesc(type_id: Oid, typmod: i32) -> *const RawTupleDesc;
-    //fn DecrTupleDescRefCount(ptr: *const RawTupleDesc);
 }
 
 
