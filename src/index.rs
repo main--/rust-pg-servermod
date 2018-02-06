@@ -11,6 +11,7 @@ extern "C" {
     fn index_open(relation: Oid, lockmode: i32 /* set to 1 */) -> *const Relation;
     fn index_close(relation: *const Relation, lockmode: i32);
     fn index_beginscan(heap: *const Relation, index: *const Relation, snapshot: *mut c_void /* null */, nkeys: i32, norderbys: i32) -> IndexScanDesc;
+    // afaik orderbys are broken and unused
     fn index_rescan(scan: IndexScanDesc, scankeys: *const ScanKey, nkeys: i32, orderbys: *mut u8, norderbys: i32);
     fn index_getnext(scan: IndexScanDesc, direction: i32) -> *mut HeapTupleData<'static>; // returns HeapTuple
     //fn index_getnext_tid(scan: IndexScanDesc, direction: i32) -> *mut c_void; // returns ItemPointer
@@ -38,8 +39,11 @@ impl ScanKey {
     }
 }
 
-// FIXME: this code works with btree index only
-// FIXME: this code blindly assumes index structure (single-column int4)
+// FIXME: this code works with btree index only.
+//        need to figure out how this /actually/ works
+// FIXME: we only support eq right now, but gt/lt should be easy to do hopefully?
+// FIXME: validate index structure (postgres does not guard against invalid scankeys,
+//        most importantly column id needs to be valid or things break horribly)
 
 pub struct IndexScan<'a> {
     ptr: IndexScanDesc,
