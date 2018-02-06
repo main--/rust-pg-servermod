@@ -16,6 +16,7 @@ pub mod types;
 pub mod catalog;
 pub mod index;
 pub mod heap;
+pub mod interrupt;
 
 // macro-internal modules
 #[doc(hidden)] pub mod magic;
@@ -153,5 +154,14 @@ CREATE_STRICT_FUNCTION! {
         Some(42)
         //let count = scan.count();
         //Some(count as i32)
+    }
+}
+
+CREATE_FUNCTION! {
+    fn canceldota @ pg_finfo_canceldota ( _ctx ) -> void {
+        loop {
+            interrupt::check_for_interrupts();
+            println!("lul");
+        }
     }
 }
