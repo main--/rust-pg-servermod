@@ -6,20 +6,26 @@ use error;
 use Datum;
 
 // prime example for extern types, oh well
-type Relation = *mut c_void;
+//type Relation = *mut c_void;
+#[repr(C, packed)]
+struct Relation {
+    _pad: [u8; ::RELATT_OFFSET],
+    td: *const RawTupleDesc,
+}
 type HeapScanDesc = *mut c_void;
 //type TupleDesc = *mut c_void;
-#[repr(C)]
-struct TupleDesc {
+#[repr(C, packed)]
+pub struct RawTupleDesc {
     natts: i32,
+    tdtypeid: Oid,
     // ...
 }
 extern "C" {
-    fn heap_open(relation: Oid, lockmode: i32) -> Relation;
-    fn relation_close(relation: Relation, lockmode: i32);
+    fn heap_open(relation: Oid, lockmode: i32) -> *const Relation;
+    fn relation_close(relation: *const Relation, lockmode: i32);
 
-    fn heap_beginscan(relation: Relation, snapshot: *mut c_void, nkeys: i32, scankeys: *mut u8) -> HeapScanDesc;
-    fn heap_rescan(scan: HeapScanDesc, scankeys: *mut u8);
+    fn heap_beginscan(relation: *const Relation, snapshot: *mut c_void, nkeys: i32, scankeys: *mut u8) -> HeapScanDesc;
+    //fn heap_rescan(scan: HeapScanDesc, scankeys: *mut u8);
     fn heap_getnext(scan: HeapScanDesc, direction: i32) -> *const HeapTupleData<'static>;
 
     //fn index_getnext_tid(scan: IndexScanDesc, direction: i32) -> *mut c_void; // returns ItemPointer
@@ -30,15 +36,19 @@ extern "C" {
     //fn ScanKeyInit(entry: *mut u8, attr_num: u16, strat_num: u16, regproc: u32, arg: usize);
 
     // FIXME: don't use deprecated shit
-    fn RelationNameGetTupleDesc(relname: *const c_char) -> *const TupleDesc;
-    fn BlessTupleDesc(desc: *const TupleDesc) -> *const TupleDesc;
-    fn heap_deform_tuple(tuple: *const HeapTupleData, desc: *const TupleDesc, values: *mut Datum, isnull: *mut bool);
+    //fn RelationNameGetTupleDesc(relname: *const c_char) -> *const RawTupleDesc;
+    //fn BlessTupleDesc(desc: *const RawTupleDesc) -> *const RawTupleDesc;
+    fn heap_deform_tuple(tuple: *const HeapTupleData, desc: *const RawTupleDesc, values: *mut Datum, isnull: *mut bool);
+
+    //fn lookup_rowtype_tupdesc(type_id: Oid, typmod: i32) -> *const RawTupleDesc;
+    //fn DecrTupleDescRefCount(ptr: *const RawTupleDesc);
 }
 
 
-pub struct Heap(Relation);
+pub struct Heap(*const Relation);
 pub struct HeapScan<'a> {
     ptr: HeapScanDesc,
+    tupledesc: *const RawTupleDesc,
     marker: PhantomData<&'a Heap>,
 }
 
@@ -55,6 +65,7 @@ impl Heap {
                 let snap = GetTransactionSnapshot();
                 HeapScan {
                     ptr: heap_beginscan(self.0, snap, 0, ptr::null_mut()),
+                    tupledesc: (*self.0).td,
                     marker: PhantomData,
                 }
             }
@@ -71,45 +82,50 @@ struct ItemPointerData {
     foo: [u8; 6]
 }
 
+
 #[repr(C)]
 struct HeapTupleHeader {
     pad: [u8; 22],
+    //pad: [u8; RELATT_OFFSET],
     t_hoff: u8,
     // tail ...
 }
 
+pub struct HeapTuple<'a> {
+    data: HeapTupleData<'a>,
+    tupledesc: *const RawTupleDesc,
+}
+
 #[repr(C)]
 #[derive(Clone, Copy)]
-pub struct HeapTupleData<'a> {
+struct HeapTupleData<'a> {
     t_len: u32,
     t_self: ItemPointerData,
     t_tableOid: Oid,
     t_data: &'a HeapTupleHeader,
 }
 
-impl<'a> HeapTupleData<'a> {
-    pub fn deform(&self) -> Vec<Option<Datum<'a>>> {
-        error::convert_postgres_error(|| {
-            unsafe {
-                let td = RelationNameGetTupleDesc(b"sunsfan\0".as_ptr() as *const c_char);
-                let td = BlessTupleDesc(td);
 
-                let natts = (*td).natts as usize;
+impl<'a> HeapTuple<'a> {
+    pub fn deform(&self) -> Vec<Option<Datum<'a>>> {
+        unsafe {
+            error::convert_postgres_error(|| {
+                let natts = (*self.tupledesc).natts as usize;
                 let mut vals: Vec<Datum> = Vec::with_capacity(natts);
                 let mut flags: Vec<bool> = Vec::with_capacity(natts);
                 vals.set_len(natts);
                 flags.set_len(natts);
 
-                heap_deform_tuple(self, td, vals.as_mut_ptr(), flags.as_mut_ptr());
+                heap_deform_tuple(&self.data, self.tupledesc, vals.as_mut_ptr(), flags.as_mut_ptr());
 
                 vals.into_iter().zip(flags).map(|(v, f)| if f { None } else { Some(v) }).collect()
-            }
-        })
+            })
+        }
     }
 }
 
 impl<'a> Iterator for HeapScan<'a> {
-    type Item = HeapTupleData<'a>;
+    type Item = HeapTuple<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
         unsafe {
@@ -117,7 +133,10 @@ impl<'a> Iterator for HeapScan<'a> {
             if tuple.is_null() {
                 None
             } else {
-                Some(*tuple)
+                Some(HeapTuple {
+                    data: *tuple,
+                    tupledesc: self.tupledesc,
+                })
             }
         }
     }

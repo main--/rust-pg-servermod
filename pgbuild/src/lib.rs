@@ -9,4 +9,5 @@ extern "C" {
     pub fn len_sigjmpbuf() -> u32;
 
     pub fn cacheid_typeoid() -> u32;
+    pub fn relatt_offset() -> u32;
 }

@@ -25,6 +25,7 @@ pub mod interrupt;
 
 
 // TODO: repr(transparent) EVERYWHERE, esp. here
+// TODO: define datum as nonzero
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
 pub struct Datum<'a>(usize, ::std::marker::PhantomData<&'a ()>);
@@ -146,14 +147,13 @@ CREATE_STRICT_FUNCTION! {
 CREATE_STRICT_FUNCTION! {
     fn scanheap @ pg_finfo_scanheap(_ctx, id: oid) -> int4 {
         let heap = heap::Heap::open(id);
-        let scan = heap.scan();
-        for x in scan {
-            //x.deform();
-            //panic!("{:?}", x.deform());
+        let mut scan = heap.scan();
+
+        for x in scan.take(100) {
+            println!("{:?}", x.deform());
         }
+
         Some(42)
-        //let count = scan.count();
-        //Some(count as i32)
     }
 }
 
