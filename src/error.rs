@@ -195,23 +195,51 @@ fn convert_postgres_error_inner(e: PgError) -> ! {
 #[inline]
 pub fn catch_postgres_error<F: FnOnce() -> R + UnwindSafe, R>(f: F) -> Result<R, PgError> {
     unsafe {
-        let save_exception_stack = PG_exception_stack;
-        let save_context_stack = error_context_stack;
+        let restore = RestorePgExceptionStack::capture();
         let mut jmpbuf: [u8; ::LEN_SIGJMPBUF] = mem::uninitialized();
-        let ret = {
-            if sigsetjmp(jmpbuf.as_mut_ptr(), 0) == 0 {
-                PG_exception_stack = jmpbuf.as_mut_ptr();
-                Ok(f())
-            } else {
-                PG_exception_stack = save_exception_stack;
-                error_context_stack = save_context_stack;
 
-                Err(record_pg_error())
+        if sigsetjmp(jmpbuf.as_mut_ptr(), 0) == 0 {
+            PG_exception_stack = jmpbuf.as_mut_ptr();
+
+            let ret = f();
+            drop(restore);
+            Ok(ret)
+        } else {
+            drop(restore);
+
+            Err(record_pg_error())
+        }
+    }
+}
+
+// this exists so we reset the exception stack *even* if a rust panic is unwinding
+// through our postgres error handler
+//
+// this allows you to panic!() inside a catch_postgres_error block without
+// completely messing up the stack (once we convert the rust panic to a pg error,
+// we would try to jump to this catch block ... which has long since returned!)
+struct RestorePgExceptionStack {
+    save_exception_stack: *mut u8,
+    save_context_stack: *mut u8,
+}
+
+impl RestorePgExceptionStack {
+    fn capture() -> RestorePgExceptionStack {
+        unsafe {
+            RestorePgExceptionStack {
+                save_exception_stack: PG_exception_stack,
+                save_context_stack: error_context_stack,
             }
-        };
-        PG_exception_stack = save_exception_stack;
-        error_context_stack = save_context_stack;
-        ret
+        }
+    }
+}
+
+impl Drop for RestorePgExceptionStack {
+    fn drop(&mut self) {
+        unsafe {
+            PG_exception_stack = self.save_exception_stack;
+            error_context_stack = self.save_context_stack;
+        }
     }
 }
 
