@@ -1,10 +1,12 @@
 use std::os::raw::c_void;
 use std::marker::PhantomData;
 use std::ptr;
+
 use types::Oid;
 use error;
 use Datum;
 use relation::{Relation, RawTupleDesc, GetTransactionSnapshot};
+use tupledesc::{TupleDesc, RefTupleDesc};
 
 type HeapScanDesc = *mut c_void;
 
@@ -46,6 +48,12 @@ impl Heap {
                 }
             }
         })
+    }
+
+    pub fn tuple_desc<'a>(&'a self) -> RefTupleDesc<'a> {
+        unsafe {
+            RefTupleDesc::from_raw((*self.0).td)
+        }
     }
 }
 

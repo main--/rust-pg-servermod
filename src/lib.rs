@@ -18,6 +18,7 @@ mod relation;
 pub mod index;
 pub mod heap;
 pub mod interrupt;
+pub mod tupledesc;
 
 // macro-internal modules
 #[doc(hidden)] pub mod magic;
