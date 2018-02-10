@@ -7,11 +7,23 @@ use types::Oid;
 pub struct RawTupleDesc {
     pub natts: i32,
     pub tdtypeid: Oid,
+    pub tdtypmod: i32,
+    pub tdhasoid: u8,
+    pub tdrefcount: i32,
     // ...
 }
 
 pub struct RcTupleDesc {
     ptr: *const RawTupleDesc,
+}
+
+
+impl Drop for RcTupleDesc {
+    fn drop(&mut self) {
+        unsafe {
+            DecrTupleDescRefCount(self.ptr)
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -29,15 +41,23 @@ pub unsafe trait TupleDesc {
     }
 }
 
+extern "C" {
+    fn IncrTupleDescRefCount(ptr: *const RawTupleDesc);
+    fn DecrTupleDescRefCount(ptr: *const RawTupleDesc);
+}
+
 unsafe impl TupleDesc for RcTupleDesc {
     fn as_raw(&self) -> *const RawTupleDesc {
         self.ptr
     }
 
     unsafe fn from_raw(ptr: *const RawTupleDesc) -> RcTupleDesc {
+        assert!((*ptr).tdrefcount >= 0);
+        IncrTupleDescRefCount(ptr);
         RcTupleDesc { ptr }
     }
 }
+
 unsafe impl<'a> TupleDesc for RefTupleDesc<'a> {
     fn as_raw(&self) -> *const RawTupleDesc {
         self.ptr
