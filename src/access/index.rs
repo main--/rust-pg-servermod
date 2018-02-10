@@ -4,7 +4,7 @@ use std::{ptr, mem};
 
 use types::Oid;
 use error;
-use heap::Heap;
+use super::heap::Heap;
 use relation::{Relation, GetTransactionSnapshot};
 use alloc::MemoryContext;
 use tuple::desc::RefTupleDesc;

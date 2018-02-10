@@ -15,8 +15,7 @@ pub mod types;
 #[macro_use] pub mod export;
 pub mod catalog;
 mod relation;
-pub mod index;
-pub mod heap;
+pub mod access;
 pub mod interrupt;
 pub mod tuple;
 
@@ -146,7 +145,7 @@ CREATE_STRICT_FUNCTION! {
 
 CREATE_STRICT_FUNCTION! {
     fn scanheap @ pg_finfo_scanheap(ctx, id: oid) -> int4 {
-        let heap = heap::Heap::open(id);
+        let heap = access::heap::Heap::open(id);
         let mut scan = heap.scan(ctx.allocator());
 
         while let Some(x) = scan.next() {
@@ -160,9 +159,9 @@ CREATE_STRICT_FUNCTION! {
 
 CREATE_STRICT_FUNCTION! {
     fn scanindex @ pg_finfo_scanindex(ctx, heap: oid, index: oid, col: int4, val: int4) -> int4 {
-        let heap = heap::Heap::open(heap);
-        let index = index::Index::open(index);
-        let keys = [index::ScanKey::new(col as u16, val as usize)];
+        let heap = access::heap::Heap::open(heap);
+        let index = access::index::Index::open(index);
+        let keys = [access::index::ScanKey::new(col as u16, val as usize)];
         let mut scan = index.scan(&heap, &keys, ctx.allocator());
 
         while let Some(x) = scan.next() {
