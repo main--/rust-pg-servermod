@@ -18,7 +18,7 @@ pub struct EmptyTupleSlot<'alloc, T: TupleDesc> {
     td: PhantomData<T>,
     memory: PhantomData<&'alloc MemoryContext<'alloc>>,
 }
-pub struct TupleSlot<'alloc: 'slot, 'slot, 'tuple, T: TupleDesc + 'slot> {
+pub struct SlottedTuple<'alloc: 'slot, 'slot, 'tuple, T: TupleDesc + 'slot> {
     slot: &'slot mut EmptyTupleSlot<'alloc, T>,
     tuple: PhantomData<Cell<&'tuple ()>>,
 }
@@ -47,13 +47,13 @@ impl<'a, T: TupleDesc> EmptyTupleSlot<'a, T> {
 
     pub unsafe fn store_tuple<'slot, 'tuple>(&'slot mut self,
                                              tuple: *const c_void,
-                                             buffer: i32) -> TupleSlot<'a, 'slot, 'tuple, T> {
+                                             buffer: i32) -> SlottedTuple<'a, 'slot, 'tuple, T> {
         ExecStoreTuple(tuple, self.ptr, buffer, false);
         self.filled()
     }
 
-    pub unsafe fn filled<'slot, 'tuple>(&'slot mut self) -> TupleSlot<'a, 'slot, 'tuple, T> {
-        TupleSlot {
+    pub unsafe fn filled<'slot, 'tuple>(&'slot mut self) -> SlottedTuple<'a, 'slot, 'tuple, T> {
+        SlottedTuple {
             slot: self,
             tuple: PhantomData,
         }
@@ -68,7 +68,7 @@ impl<'a, T: TupleDesc> Drop for EmptyTupleSlot<'a, T> {
     }
 }
 
-impl<'alloc, 'slot, 'tuple, T: TupleDesc + 'slot> Debug for TupleSlot<'alloc, 'slot, 'tuple, T> {
+impl<'alloc, 'slot, 'tuple, T: TupleDesc + 'slot> Debug for SlottedTuple<'alloc, 'slot, 'tuple, T> {
     fn fmt(&self, fmt: &mut Formatter) -> FmtResult {
         write!(fmt, "SLOT[")?;
 

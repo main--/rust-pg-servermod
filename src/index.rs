@@ -8,7 +8,7 @@ use heap::Heap;
 use relation::{Relation, GetTransactionSnapshot};
 use alloc::MemoryContext;
 use tupledesc::RefTupleDesc;
-use tupleslot::{EmptyTupleSlot, TupleSlot};
+use tupleslot::{EmptyTupleSlot, SlottedTuple};
 
 #[repr(C)]
 struct IndexScanDescData {
@@ -88,7 +88,7 @@ pub struct IndexScan<'alloc, 'a> {
 }
 
 impl<'alloc, 'a> IndexScan<'alloc, 'a> {
-    pub fn next<'b>(&'b mut self) -> Option<TupleSlot<'alloc, 'b, 'a, RefTupleDesc<'a>>> {
+    pub fn next<'b>(&'b mut self) -> Option<SlottedTuple<'alloc, 'b, 'a, RefTupleDesc<'a>>> {
         unsafe {
             match self.raw.next() {
                 None => None,
