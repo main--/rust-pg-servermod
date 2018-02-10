@@ -99,17 +99,6 @@ impl<'a, T: 'a + Varlena + ?Sized> Toasted<'a, T> {
         self.to_varlena().unwrap_or_else(|| self.copy_detoast(allocator))
     }
 
-    /*
-    pub fn detoast_packed<'b, 'c: 'b, 'd>(&self, allocator: &'c MemoryContext<'d>) -> VarlenaCow<'b> where 'a: 'b {
-        unsafe {
-            match self.header() {
-                Header::Small(_) | Header::Large(_) => VarlenaCow::Borrowed(*self),
-                _ => VarlenaCow::Owned(self.copy_detoast(allocator)),
-            }
-        }
-    }
-     */
-
     unsafe fn header(&self) -> Header {
         header(self.ptr)
     }

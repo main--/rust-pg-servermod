@@ -12,6 +12,7 @@ pub struct Pg_magic_struct {
 }
 
 #[no_mangle]
+#[doc(hidden)]
 pub extern "C" fn Pg_magic_func() -> *const Pg_magic_struct {
     static MAGIC: Pg_magic_struct = Pg_magic_struct {
         len: mem::size_of::<Pg_magic_struct>() as i32,
