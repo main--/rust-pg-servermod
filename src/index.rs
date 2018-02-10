@@ -8,7 +8,7 @@ use heap::Heap;
 use relation::{Relation, GetTransactionSnapshot};
 use alloc::MemoryContext;
 use tupledesc::RefTupleDesc;
-use tupleslot::{EmptyTupleSlot, SlottedTuple};
+use tupleslot::{TupleSlot, SlottedTuple};
 
 #[repr(C)]
 struct IndexScanDescData {
@@ -84,7 +84,7 @@ impl<'a> Drop for RawIndexScan<'a> {
 
 pub struct IndexScan<'alloc, 'a> {
     raw: RawIndexScan<'a>,
-    slot: EmptyTupleSlot<'alloc, RefTupleDesc<'a>>,
+    slot: TupleSlot<'alloc, RefTupleDesc<'a>>,
 }
 
 impl<'alloc, 'a> IndexScan<'alloc, 'a> {
@@ -115,7 +115,7 @@ impl Index {
                             alloc: &'alloc MemoryContext<'alloc>) -> IndexScan<'alloc, 'a> {
         IndexScan {
             raw: self.scan_raw(heap, scankeys),
-            slot: EmptyTupleSlot::create(heap.tuple_desc(), alloc),
+            slot: TupleSlot::create(heap.tuple_desc(), alloc),
         }
     }
 

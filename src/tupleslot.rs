@@ -13,13 +13,13 @@ struct RawTupleSlot {
     tts_tupleDescriptor: *const RawTupleDesc,
 }
 
-pub struct EmptyTupleSlot<'alloc, T: TupleDesc> {
+pub struct TupleSlot<'alloc, T: TupleDesc> {
     ptr: *mut RawTupleSlot,
     td: PhantomData<T>,
     memory: PhantomData<&'alloc MemoryContext<'alloc>>,
 }
 pub struct SlottedTuple<'alloc: 'slot, 'slot, 'tuple, T: TupleDesc + 'slot> {
-    slot: &'slot mut EmptyTupleSlot<'alloc, T>,
+    slot: &'slot mut TupleSlot<'alloc, T>,
     tuple: PhantomData<Cell<&'tuple ()>>,
 }
 
@@ -31,13 +31,13 @@ extern "C" {
     fn slot_getattr(slot: *mut RawTupleSlot, attnum: i32, isnull: *mut u8) -> Datum<'static>;
 }
 
-impl<'a, T: TupleDesc> EmptyTupleSlot<'a, T> {
+impl<'a, T: TupleDesc> TupleSlot<'a, T> {
     // allocates, this is expensive
-    pub fn create(tupledesc: T, allocator: &'a MemoryContext<'a>) -> EmptyTupleSlot<'a, T> {
+    pub fn create(tupledesc: T, allocator: &'a MemoryContext<'a>) -> TupleSlot<'a, T> {
         unsafe {
             allocator.set_current();
             let ptr = MakeSingleTupleTableSlot(tupledesc.as_raw());
-            EmptyTupleSlot {
+            TupleSlot {
                 ptr,
                 td: PhantomData,
                 memory: PhantomData,
@@ -60,7 +60,7 @@ impl<'a, T: TupleDesc> EmptyTupleSlot<'a, T> {
     }
 }
 
-impl<'a, T: TupleDesc> Drop for EmptyTupleSlot<'a, T> {
+impl<'a, T: TupleDesc> Drop for TupleSlot<'a, T> {
     fn drop(&mut self) {
         unsafe {
             ExecDropSingleTupleTableSlot(self.ptr)

@@ -7,7 +7,7 @@ use types::Oid;
 use error;
 use relation::{Relation, GetTransactionSnapshot};
 use tupledesc::{TupleDesc, RefTupleDesc};
-use tupleslot::{EmptyTupleSlot, SlottedTuple};
+use tupleslot::{TupleSlot, SlottedTuple};
 
 #[repr(C)]
 struct HeapScanDescData {
@@ -40,7 +40,7 @@ pub struct RawHeapScan<'a> {
 
 pub struct HeapScan<'alloc, 'h> {
     raw: RawHeapScan<'h>,
-    slot: EmptyTupleSlot<'alloc, RefTupleDesc<'h>>,
+    slot: TupleSlot<'alloc, RefTupleDesc<'h>>,
 }
 
 impl Heap {
@@ -53,7 +53,7 @@ impl Heap {
     pub fn scan<'alloc, 'h>(&'h self, alloc: &'alloc MemoryContext<'alloc>) -> HeapScan<'alloc, 'h> {
         HeapScan {
             raw: self.scan_raw(),
-            slot: EmptyTupleSlot::create(self.tuple_desc(), alloc),
+            slot: TupleSlot::create(self.tuple_desc(), alloc),
         }
     }
 
