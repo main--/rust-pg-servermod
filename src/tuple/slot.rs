@@ -5,7 +5,7 @@ use std::fmt::{Result as FmtResult, Formatter, Debug};
 
 use Datum;
 use alloc::MemoryContext;
-use tupledesc::{TupleDesc, RefTupleDesc, RawTupleDesc};
+use super::desc::{TupleDesc, RefTupleDesc, RawTupleDesc};
 
 #[repr(C)]
 struct RawTupleSlot {

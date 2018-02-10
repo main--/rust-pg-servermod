@@ -6,8 +6,8 @@ use alloc::MemoryContext;
 use types::Oid;
 use error;
 use relation::{Relation, GetTransactionSnapshot};
-use tupledesc::{TupleDesc, RefTupleDesc};
-use tupleslot::{TupleSlot, SlottedTuple};
+use tuple::desc::{TupleDesc, RefTupleDesc};
+use tuple::slot::{TupleSlot, SlottedTuple};
 
 #[repr(C)]
 struct HeapScanDescData {

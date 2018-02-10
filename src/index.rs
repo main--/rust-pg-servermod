@@ -7,8 +7,8 @@ use error;
 use heap::Heap;
 use relation::{Relation, GetTransactionSnapshot};
 use alloc::MemoryContext;
-use tupledesc::RefTupleDesc;
-use tupleslot::{TupleSlot, SlottedTuple};
+use tuple::desc::RefTupleDesc;
+use tuple::slot::{TupleSlot, SlottedTuple};
 
 #[repr(C)]
 struct IndexScanDescData {

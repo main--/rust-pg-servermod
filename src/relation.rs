@@ -1,6 +1,6 @@
 use std::os::raw::c_void;
 
-use tupledesc::RawTupleDesc;
+use tuple::desc::RawTupleDesc;
 
 #[repr(C, packed)]
 pub struct Relation {
