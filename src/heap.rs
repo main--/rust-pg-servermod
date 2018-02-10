@@ -2,32 +2,45 @@ use std::os::raw::c_void;
 use std::marker::PhantomData;
 use std::ptr;
 
+use alloc::MemoryContext;
 use types::Oid;
 use error;
-use Datum;
-use relation::{Relation, RawTupleDesc, GetTransactionSnapshot};
+use relation::{Relation, GetTransactionSnapshot};
 use tupledesc::{TupleDesc, RefTupleDesc};
+use tupleslot::{EmptyTupleSlot, TupleSlot};
 
-type HeapScanDesc = *mut c_void;
+#[repr(C)]
+struct HeapScanDescData {
+    _pad: [u8; ::RS_CBUF_OFFSET],
+    rs_cbuf: i32,
+}
+type HeapScanDesc = *mut HeapScanDescData;
 
+type HeapTupleData = c_void;
 extern "C" {
     fn heap_open(relation: Oid, lockmode: i32) -> *const Relation;
     fn relation_close(relation: *const Relation, lockmode: i32);
 
     fn heap_beginscan(relation: *const Relation, snapshot: *mut c_void, nkeys: i32, scankeys: *mut u8) -> HeapScanDesc;
     //fn heap_rescan(scan: HeapScanDesc, scankeys: *mut u8);
-    fn heap_getnext(scan: HeapScanDesc, direction: i32) -> *const HeapTupleData<'static>;
+    fn heap_getnext(scan: HeapScanDesc, direction: i32) -> *const HeapTupleData;
     fn heap_endscan(scan: HeapScanDesc);
 
-    fn heap_deform_tuple(tuple: *const HeapTupleData, desc: *const RawTupleDesc, values: *mut Datum, isnull: *mut bool);
+    //fn heap_deform_tuple(tuple: *const HeapTupleData, desc: *const RawTupleDesc, values: *mut Datum, isnull: *mut bool);
 }
+
+
 
 // FIXME private member
 pub struct Heap(pub(crate) *const Relation);
-pub struct HeapScan<'a> {
+pub struct RawHeapScan<'a> {
     ptr: HeapScanDesc,
-    tupledesc: *const RawTupleDesc,
     marker: PhantomData<&'a Heap>,
+}
+
+pub struct HeapScan<'alloc, 'h> {
+    raw: RawHeapScan<'h>,
+    slot: EmptyTupleSlot<'alloc, RefTupleDesc<'h>>,
 }
 
 impl Heap {
@@ -37,13 +50,19 @@ impl Heap {
         }
     }
 
-    pub fn scan(&self) -> HeapScan {
+    pub fn scan<'alloc, 'h>(&'h self, alloc: &'alloc MemoryContext<'alloc>) -> HeapScan<'alloc, 'h> {
+        HeapScan {
+            raw: self.scan_raw(),
+            slot: EmptyTupleSlot::create(self.tuple_desc(), alloc),
+        }
+    }
+
+    pub fn scan_raw<'a>(&'a self) -> RawHeapScan<'a> {
         error::convert_postgres_error(|| {
             unsafe {
                 let snap = GetTransactionSnapshot();
-                HeapScan {
+                RawHeapScan {
                     ptr: heap_beginscan(self.0, snap, 0, ptr::null_mut()),
-                    tupledesc: (*self.0).td,
                     marker: PhantomData,
                 }
             }
@@ -57,60 +76,22 @@ impl Heap {
     }
 }
 
-
-
-// TODO: verify in build that C compiler is capable of aligning
-#[repr(C)]
-#[derive(Clone, Copy)]
-struct ItemPointerData {
-    foo: [u8; 6]
-}
-
-
-#[repr(C)]
-struct HeapTupleHeader {
-    pad: [u8; 22],
-    //pad: [u8; RELATT_OFFSET],
-    t_hoff: u8,
-    // tail ...
-}
-
-pub struct HeapTuple<'a> {
-    pub(crate) data: HeapTupleData<'a>,
-    pub(crate) tupledesc: *const RawTupleDesc,
-}
-
-// FIXME: make private
-#[repr(C)]
-#[derive(Clone, Copy)]
-pub(crate) struct HeapTupleData<'a> {
-    t_len: u32,
-    t_self: ItemPointerData,
-    t_tableOid: Oid,
-    t_data: &'a HeapTupleHeader,
-}
-
-
-impl<'a> HeapTuple<'a> {
-    pub fn deform(&self) -> Vec<Option<Datum<'a>>> {
+impl<'alloc, 'h> HeapScan<'alloc, 'h> {
+    pub fn next<'a>(&'a mut self) -> Option<TupleSlot<'alloc, 'a, 'h, RefTupleDesc<'h>>> {
         unsafe {
-            error::convert_postgres_error(|| {
-                let natts = (*self.tupledesc).natts as usize;
-                let mut vals: Vec<Datum> = Vec::with_capacity(natts);
-                let mut flags: Vec<bool> = Vec::with_capacity(natts);
-                vals.set_len(natts);
-                flags.set_len(natts);
-
-                heap_deform_tuple(&self.data, self.tupledesc, vals.as_mut_ptr(), flags.as_mut_ptr());
-
-                vals.into_iter().zip(flags).map(|(v, f)| if f { None } else { Some(v) }).collect()
-            })
+            match self.raw.next() {
+                None => None,
+                Some(tuple) => {
+                    let buffer = (*self.raw.ptr).rs_cbuf;
+                    Some(self.slot.store_tuple(tuple, buffer))
+                }
+            }
         }
     }
 }
 
-impl<'a> Iterator for HeapScan<'a> {
-    type Item = HeapTuple<'a>;
+impl<'a> Iterator for RawHeapScan<'a> {
+    type Item = *const HeapTupleData;
 
     fn next(&mut self) -> Option<Self::Item> {
         unsafe {
@@ -118,16 +99,13 @@ impl<'a> Iterator for HeapScan<'a> {
             if tuple.is_null() {
                 None
             } else {
-                Some(HeapTuple {
-                    data: *tuple,
-                    tupledesc: self.tupledesc,
-                })
+                Some(tuple)
             }
         }
     }
 }
 
-impl<'a> Drop for HeapScan<'a> {
+impl<'a> Drop for RawHeapScan<'a> {
     fn drop(&mut self) {
         unsafe {
             error::convert_postgres_error_dtor(|| heap_endscan(self.ptr))
@@ -142,31 +120,3 @@ impl Drop for Heap {
         }
     }
 }
-/*
-pub fn do_index_scan(rel: Oid, idx: Oid) -> i32 {
-    let mut counter = 0;
-    unsafe {
-        let heap = heap_open(rel, 1);
-        let index = index_open(idx, 1);
-
-        let btint4cmp = 184;
-        let mut keybuf = [0u8; ::LEN_SCANKEYDATA];
-        ScanKeyInit(keybuf.as_mut_ptr(), 1, 3, btint4cmp, 4);
-
-        let snap = GetTransactionSnapshot();
-        assert!(!snap.is_null());
-        let scan = index_beginscan(heap, index, snap, 1, 0);
-        index_rescan(scan, keybuf.as_mut_ptr(), 1, ptr::null_mut(), 0);
-        loop {
-            let thing = index_getnext(scan, 1);
-            if thing.is_null() { break; }
-            counter += 1;
-        }
-        index_endscan(scan);
-
-        index_close(index, 1);
-        relation_close(heap, 1);
-    }
-    counter
-}
-*/

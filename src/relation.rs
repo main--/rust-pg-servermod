@@ -1,5 +1,6 @@
 use std::os::raw::c_void;
-use types::Oid;
+
+use tupledesc::RawTupleDesc;
 
 #[repr(C, packed)]
 pub struct Relation {
@@ -7,12 +8,6 @@ pub struct Relation {
     pub td: *const RawTupleDesc,
 }
 
-#[repr(C, packed)]
-pub struct RawTupleDesc {
-    pub natts: i32,
-    pub tdtypeid: Oid,
-    // ...
-}
 
 extern "C" {
     // TODO: proper transaction api

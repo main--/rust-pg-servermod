@@ -19,6 +19,7 @@ pub mod index;
 pub mod heap;
 pub mod interrupt;
 pub mod tupledesc;
+pub mod tupleslot;
 
 // macro-internal modules
 #[doc(hidden)] pub mod magic;
@@ -147,32 +148,34 @@ CREATE_STRICT_FUNCTION! {
 }
 
 CREATE_STRICT_FUNCTION! {
-    fn scanheap @ pg_finfo_scanheap(_ctx, id: oid) -> int4 {
+    fn scanheap @ pg_finfo_scanheap(ctx, id: oid) -> int4 {
         let heap = heap::Heap::open(id);
-        let mut scan = heap.scan();
+        let mut scan = heap.scan(ctx.allocator());
 
-        for x in scan.take(100) {
-            println!("{:?}", x.deform());
+        while let Some(x) = scan.next() {
+            println!("{:?}", x);
         }
 
         Some(42)
     }
 }
 
+
 CREATE_STRICT_FUNCTION! {
-    fn scanindex @ pg_finfo_scanindex(_ctx, heap: oid, index: oid, col: int4, val: int4) -> int4 {
+    fn scanindex @ pg_finfo_scanindex(ctx, heap: oid, index: oid, col: int4, val: int4) -> int4 {
         let heap = heap::Heap::open(heap);
         let index = index::Index::open(index);
         let keys = [index::ScanKey::new(col as u16, val as usize)];
-        let mut scan = index.scan(&heap, &keys);
+        let mut scan = index.scan(&heap, &keys, ctx.allocator());
 
-        for x in scan.take(10) {
-            println!("{:?}", x.deform());
+        while let Some(x) = scan.next() {
+           println!("{:?}", x);
         }
 
         Some(42)
     }
 }
+
 
 CREATE_FUNCTION! {
     fn canceldota @ pg_finfo_canceldota ( _ctx ) -> void {

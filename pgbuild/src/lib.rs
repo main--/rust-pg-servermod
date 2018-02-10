@@ -10,4 +10,6 @@ extern "C" {
 
     pub fn cacheid_typeoid() -> u32;
     pub fn relatt_offset() -> u32;
+    pub fn rs_cbuf_offset() -> u32;
+    pub fn xs_cbuf_offset() -> u32;
 }

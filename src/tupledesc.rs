@@ -1,6 +1,14 @@
 use std::marker::PhantomData;
 
-use relation::RawTupleDesc;
+use types::Oid;
+
+
+#[repr(C, packed)]
+pub struct RawTupleDesc {
+    pub natts: i32,
+    pub tdtypeid: Oid,
+    // ...
+}
 
 pub struct RcTupleDesc {
     ptr: *const RawTupleDesc,
@@ -12,13 +20,16 @@ pub struct RefTupleDesc<'a> {
     marker: PhantomData<&'a ()>,
 }
 
-pub trait TupleDesc {
+pub unsafe trait TupleDesc {
     fn as_raw(&self) -> *const RawTupleDesc;
     unsafe fn from_raw(ptr: *const RawTupleDesc) -> Self;
 
+    fn num_attributes(&self) -> i32 {
+        unsafe { (*self.as_raw()).natts }
+    }
 }
 
-impl TupleDesc for RcTupleDesc {
+unsafe impl TupleDesc for RcTupleDesc {
     fn as_raw(&self) -> *const RawTupleDesc {
         self.ptr
     }
@@ -27,7 +38,7 @@ impl TupleDesc for RcTupleDesc {
         RcTupleDesc { ptr }
     }
 }
-impl<'a> TupleDesc for RefTupleDesc<'a> {
+unsafe impl<'a> TupleDesc for RefTupleDesc<'a> {
     fn as_raw(&self) -> *const RawTupleDesc {
         self.ptr
     }

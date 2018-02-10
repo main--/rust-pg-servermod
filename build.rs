@@ -26,6 +26,8 @@ fn main() {
         writeln!(f, "const CACHEID_TYPEOID: i32 = {};", pgbuild::cacheid_typeoid()).unwrap();
 
         writeln!(f, "const RELATT_OFFSET: usize = {};", pgbuild::relatt_offset()).unwrap();
+        writeln!(f, "const RS_CBUF_OFFSET: usize = {};", pgbuild::rs_cbuf_offset()).unwrap();
+        writeln!(f, "const XS_CBUF_OFFSET: usize = {};", pgbuild::xs_cbuf_offset()).unwrap();
 
 
         assert_ne!(pgbuild::float4_byval(), 0);

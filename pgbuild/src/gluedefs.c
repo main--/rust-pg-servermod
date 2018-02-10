@@ -1,6 +1,7 @@
 #include <stdint.h>
 #include <postgres.h>
 #include <access/skey.h>
+#include <access/relscan.h>
 #include <utils/syscache.h>
 #include <utils/rel.h>
 #include <setjmp.h>
@@ -18,3 +19,5 @@ uint32_t len_sigjmpbuf() { return sizeof(sigjmp_buf); }
 uint32_t cacheid_typeoid() { return TYPEOID; }
 
 uint32_t relatt_offset() { return offsetof(RelationData, rd_att); }
+uint32_t rs_cbuf_offset() { return offsetof(HeapScanDescData, rs_cbuf); }
+uint32_t xs_cbuf_offset() { return offsetof(IndexScanDescData, xs_cbuf); }
