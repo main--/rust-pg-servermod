@@ -108,9 +108,7 @@ CREATE_FUNCTION! {
 
 CREATE_FUNCTION! {
     fn errtest @ pg_finfo_errtest (_ctx) -> void {
-        unsafe {
-            error::convert_postgres_error(|| error::convert_rust_panic(|| panic!("inney")))
-        }
+        error::convert_postgres_error(|| error::convert_rust_panic(|| panic!("inney")))
     }
 }
 

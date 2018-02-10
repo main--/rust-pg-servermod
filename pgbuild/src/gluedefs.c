@@ -1,3 +1,4 @@
+#pragma GCC diagnostic ignored "-Wunused-parameter" // postgres is guilty of this right now, we don't care though
 #include <stdint.h>
 #include <postgres.h>
 #include <access/skey.h>
