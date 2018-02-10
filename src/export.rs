@@ -78,8 +78,23 @@ impl<'a> FunctionCallInfo<'a> {
         }
     }
 
-    pub fn arg<T: StaticallyTyped + FromDatum<'a>>(&self) -> Option<T> {
-        unimplemented!(); // typecheck, then FromDatum
+    // TODO: perhaps return errors for typechecking and nonexistant parameters
+    // (instead of panicking)
+    pub fn arg<T: StaticallyTyped + FromDatum<'a>>(&self, n: usize) -> Option<T> {
+        let typ = self.arg_types().nth(n).expect("missing parameter");
+        if T::OID != typ {
+            panic!("Argument #{} has type {} but should be {}", n,
+                   catalog::get_type_name(typ).unwrap(),
+                   catalog::get_type_name(T::OID).unwrap());
+        }
+
+        unsafe {
+            if (*self.0).argnull[n] == 0 {
+                Some(T::from(self.args_strict()[n]))
+            } else {
+                None
+            }
+        }
     }
 
     #[inline(always)]
@@ -143,7 +158,7 @@ impl<'a: 'b, 'b> Iterator for ArgTypesIter<'a, 'b> {
     fn next(&mut self) -> Option<Oid> {
         unsafe {
             let flinfo = (*self.fcinfo.0).flinfo;
-            if self.i == (*flinfo).fn_nargs {
+            if self.i >= (*flinfo).fn_nargs {
                 None
             } else {
                 let ret = get_fn_expr_argtype(flinfo, self.i as i32);
@@ -151,6 +166,14 @@ impl<'a: 'b, 'b> Iterator for ArgTypesIter<'a, 'b> {
                 Some(ret)
             }
         }
+    }
+
+    fn nth(&mut self, n: usize) -> Option<Oid> {
+        // sanity; also it's a poor man's overflow check
+        assert!(n < ::FUNC_MAX_ARGS);
+
+        self.i += n as i16;
+        self.next()
     }
 }
 impl<'a: 'b, 'b> ExactSizeIterator for ArgTypesIter<'a, 'b> {
