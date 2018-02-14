@@ -1,4 +1,5 @@
 use std::marker::PhantomData;
+use std::panic::{UnwindSafe, RefUnwindSafe};
 
 use types::Oid;
 
@@ -32,7 +33,7 @@ pub struct RefTupleDesc<'a> {
     marker: PhantomData<&'a ()>,
 }
 
-pub unsafe trait TupleDesc {
+pub unsafe trait TupleDesc: UnwindSafe + RefUnwindSafe {
     fn as_raw(&self) -> *const RawTupleDesc;
     unsafe fn from_raw(ptr: *const RawTupleDesc) -> Self;
 

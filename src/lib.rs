@@ -28,11 +28,17 @@ pub mod tuple;
 // TODO: repr(transparent) EVERYWHERE, esp. here
 // TODO: define datum as nonzero
 #[repr(C)]
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone)]
 pub struct Datum<'a>(usize, ::std::marker::PhantomData<&'a ()>);
 impl<'a> Datum<'a> {
     pub fn create(value: usize) -> Datum<'a> {
         Datum(value, ::std::marker::PhantomData)
+    }
+}
+use std::fmt::{Debug, Formatter, Result as FmtResult};
+impl<'a> Debug for Datum<'a> {
+    fn fmt(&self, fmt: &mut Formatter) -> FmtResult {
+        write!(fmt, "DATUM[{:p}]", self.0 as *mut ())
     }
 }
 
@@ -149,7 +155,7 @@ CREATE_STRICT_FUNCTION! {
         let mut scan = heap.scan(ctx.allocator());
 
         while let Some(x) = scan.next() {
-            println!("{:?}", x);
+            println!("{:?} {:?} {:?}", x.attribute(1), x.attribute(2), x.attribute(4));
         }
 
         Some(42)
