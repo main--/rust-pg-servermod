@@ -155,7 +155,7 @@ CREATE_STRICT_FUNCTION! {
         let mut scan = heap.scan(ctx.allocator());
 
         while let Some(x) = scan.next() {
-            println!("{:?} {:?} {:?}", x.attribute(1), x.attribute(2), x.attribute(4));
+            println!("{:?} {:?} {:?}", x.attribute(1), x.attribute(2), x.attribute(-7));
         }
 
         Some(42)
