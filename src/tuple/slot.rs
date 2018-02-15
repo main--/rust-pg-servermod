@@ -102,7 +102,7 @@ impl<'alloc, 'slot, 'tuple, T: TupleDesc + 'slot> Debug for SlottedTuple<'alloc,
 
         let tupledesc = self.slot().tupledesc();
         for i in 0..tupledesc.num_attributes() {
-            write!(fmt, "{:?}, ", self.attribute(i))?;
+            write!(fmt, "{:?}, ", self.attribute(i + 1))?;
         }
         write!(fmt, "]")?;
 
