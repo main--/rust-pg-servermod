@@ -6,6 +6,7 @@ use catalog;
 use alloc::{self, MemoryContext};
 use types::{StaticallyTyped, FromDatum, Oid, bytea};
 use varlena::Toasted;
+use spi::SpiContext;
 
 extern "C" {
     pub fn get_fn_expr_argtype(flinfo: *mut FmgrInfo, argnum: i32) -> Oid;
@@ -144,6 +145,8 @@ impl<'a> FunctionCallInfo<'a> {
         FunctionCallContext {
             fcinfo: self,
             allocator: alloc::get_current_ctx(),
+            //spi: None,
+            has_spi: AssertUnwindSafe(Cell::new(false)),
         }
     }
 }
@@ -215,9 +218,14 @@ macro_rules! lifetimeize {
     ($other:ident) => ( $crate::types::$other );
 }
 
+
+use std::cell::Cell;
+use std::panic::AssertUnwindSafe;
 pub struct FunctionCallContext<'a> {
     fcinfo: FunctionCallInfo<'a>,
     allocator: ManuallyDrop<MemoryContext<'static>>,
+    //spi: Option<SpiContext>;
+    has_spi: AssertUnwindSafe<Cell<bool>>,
 }
 
 
@@ -239,6 +247,14 @@ impl<'a> FunctionCallContext<'a> {
             let shared: &'a bytea = <Toasted<bytea> as FromDatum>::from(Datum::create(ptr as usize)).to_varlena().unwrap();
             mem::transmute(shared)
         }
+    }
+
+    pub fn connect_spi(&self) -> SpiContext {
+        assert!(!self.has_spi.get(), "Multiple SPI connections are illegal!");
+
+        self.has_spi.set(true);
+
+        unsafe { SpiContext::create() }
     }
 }
 

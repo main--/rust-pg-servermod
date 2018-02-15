@@ -18,6 +18,7 @@ mod relation;
 pub mod access;
 pub mod interrupt;
 pub mod tuple;
+pub mod spi;
 
 // macro-internal modules
 #[doc(hidden)] pub mod magic;
@@ -185,5 +186,17 @@ CREATE_FUNCTION! {
             interrupt::check_for_interrupts();
             println!("lul");
         }
+    }
+}
+
+CREATE_STRICT_FUNCTION! {
+    fn evalul @ pg_finfo_evalul(ctx, sql: text) -> int4 {
+        let sql = sql.detoast_packed(ctx.allocator()).to_str()?;
+
+        let spi = ctx.connect_spi();
+        let res = spi.execute(sql, &[]).unwrap();
+        println!("{:?}", res);
+
+        Some(42)
     }
 }
