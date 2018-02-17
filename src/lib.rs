@@ -194,7 +194,7 @@ CREATE_STRICT_FUNCTION! {
         let sql = sql.detoast_packed(ctx.allocator()).to_str()?;
 
         let spi = ctx.connect_spi();
-        let res = spi.execute(sql, &[]).unwrap();
+        let res = spi.execute(sql, &[42i32.into(), ::spi::QueryParameter::null::<i32>(), 1337i32.into()]).unwrap();
         println!("{:?}", res);
 
         Some(42)

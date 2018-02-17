@@ -1,10 +1,9 @@
 use std::os::raw::{c_int, c_char, c_void, c_long};
 use std::marker::PhantomData;
 use std::ffi::CString;
-use std::panic::RefUnwindSafe;
 use std::slice;
 
-use types::oid;
+use types::{oid, StaticallyTyped};
 use Datum;
 use error;
 use tuple::desc::{TupleDesc, RefTupleDesc, RawTupleDesc};
@@ -39,6 +38,7 @@ extern "C" {
                                  nulls: *const c_char,
                                  read_only: bool,
                                  cursor_options: c_int) -> *mut c_void;
+    fn SPI_cursor_close(cursor: *mut c_void);
 
     fn SPI_freetuptable(tuptable: *mut SPITupleTable);
     static mut SPI_tuptable: *mut SPITupleTable;
@@ -89,6 +89,13 @@ enum SpiRet {
     ErrRelNotFound = -13,
 }
 
+// you wanted to do this, but it's not allowed in this context
+#[derive(Clone, Debug)]
+pub enum ExecError {
+    Copy,
+    Transaction,
+}
+
 impl SpiContext {
     pub unsafe fn create() -> SpiContext {
         let ret = SPI_connect();
@@ -97,15 +104,15 @@ impl SpiContext {
         SpiContext { _private: () }
     }
 
-    // TODO: proper error type
-    pub fn execute<'a>(&'a self, sql: &str, args: &[Option<&QueryParameter>]) -> Result<SpiResult<'a>, ()> {
+
+    pub fn execute<'a>(&'a self, sql: &str, args: &[QueryParameter]) -> Result<SpiResult<'a>, ExecError> {
         unsafe {
             let ret = error::convert_postgres_error(|| {
                 let command = CString::new(sql).unwrap();
 
-                let argtypes: Vec<oid> = args.iter().map(|x| x.map(|x| x.oid()).unwrap_or(::types::Oid(0))).collect();
-                let values: Vec<Datum> = args.iter().map(|x| x.map(|x| x.val()).unwrap_or(Datum::create(0))).collect();
-                let nulls: Vec<c_char> = args.iter().map(|x| x.map(|_| b' ').unwrap_or(b'n') as c_char).collect();
+                let argtypes: Vec<oid> = args.iter().map(|x| x.oid).collect();
+                let values: Vec<Datum> = args.iter().map(|x| x.value.unwrap_or(Datum::create(0))).collect();
+                let nulls: Vec<c_char> = args.iter().map(|x| x.value.map(|_| b' ').unwrap_or(b'n') as c_char).collect();
 
                 SPI_execute_with_args(command.as_ptr(),
                                       args.len() as c_int,
@@ -141,13 +148,13 @@ impl SpiContext {
                 if ret == SpiRet::ErrArgument as i32 {
                     unreachable!(); // we ensure this can't happen
                 } else if ret == SpiRet::ErrCopy as i32 {
-                    return Err(());
+                    return Err(ExecError::Copy);
                 } else if ret == SpiRet::ErrTransaction as i32 {
-                    return Err(());
+                    return Err(ExecError::Transaction);
                 } else if ret == SpiRet::ErrOpUnknown as i32 {
                     panic!("PostgreSQL docs state that this should not happen.");
                 } else if ret == SpiRet::ErrUnconnected as i32 {
-                    unreachable!();
+                    unreachable!(); // we ensure this can't happen either
                 } else {
                     panic!("Unknown SPI_execute return code: {}", ret);
                 }
@@ -165,11 +172,30 @@ impl Drop for SpiContext {
 }
 
 
-pub trait QueryParameter: RefUnwindSafe {
-    fn oid(&self) -> oid { unimplemented!(); }
-    fn val(&self) -> Datum { unimplemented!(); }
+pub struct QueryParameter<'a> {
+    oid: oid,
+    value: Option<Datum<'a>>,
 }
-impl QueryParameter for i32 {}
+
+impl<'a> QueryParameter<'a> {
+    pub fn null<T: StaticallyTyped>() -> QueryParameter<'a> {
+        QueryParameter {
+            oid: T::OID,
+            value: None,
+        }
+    }
+}
+
+impl<'a, T: StaticallyTyped + Into<Datum<'a>>> From<T> for QueryParameter<'a> {
+    fn from(t: T) -> QueryParameter<'a> {
+        QueryParameter {
+            oid: T::OID,
+            value: Some(t.into()),
+        }
+    }
+}
+
+
 
 #[derive(Debug)]
 pub enum SpiResult<'a> {
