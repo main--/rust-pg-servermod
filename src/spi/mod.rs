@@ -1,5 +1,6 @@
 use std::os::raw::{c_int, c_char};
 use std::ffi::CString;
+use std::ptr;
 
 use types::oid;
 use Datum;
@@ -9,8 +10,10 @@ use error;
 mod ffi;
 mod tuples;
 mod parameter;
+mod cursor;
 pub use self::tuples::{SpiTuples, SpiTuplesIter};
 pub use self::parameter::Parameter;
+pub use self::cursor::{SpiCursor, Direction};
 
 use self::ffi::*;
 
@@ -84,9 +87,33 @@ impl SpiContext {
                 SPI_ERR_COPY => Err(ExecError::Copy),
                 SPI_ERR_TRANSACTION => Err(ExecError::Transaction),
                 SPI_ERR_OPUNKNOWN => panic!("PostgreSQL docs state that this should not happen."),
-                
+
                 x => panic!("Unknown SPI_execute return code: {}", x),
             }
+        }
+    }
+
+    // NB this panics instead of erroring (due to underlying pg impl); perhaps this is not always what we want
+    pub fn execute_cursor<'a>(&'a self, sql: &str, args: &[Parameter]) -> SpiCursor<'a> {
+        unsafe {
+            let ret = error::convert_postgres_error(|| {
+                let command = CString::new(sql).unwrap();
+
+                let argtypes: Vec<oid> = args.iter().map(|x| x.oid).collect();
+                let values: Vec<Datum> = args.iter().map(|x| x.value.unwrap_or(Datum::create(0))).collect();
+                let nulls: Vec<c_char> = args.iter().map(|x| x.value.map(|_| b' ').unwrap_or(b'n') as c_char).collect();
+
+                SPI_cursor_open_with_args(ptr::null(), // null name
+                                          command.as_ptr(),
+                                          args.len() as c_int,
+                                          argtypes.as_ptr(),
+                                          values.as_ptr(),
+                                          nulls.as_ptr(),
+                                          false,
+                                          0x0002) // SCROLL
+            });
+
+            SpiCursor::new(ret)
         }
     }
 }
@@ -94,7 +121,9 @@ impl SpiContext {
 impl Drop for SpiContext {
     fn drop(&mut self) {
         unsafe {
-            SPI_finish();
+            error::convert_postgres_error_dtor(|| {
+                SPI_finish();
+            });
         }
     }
 }

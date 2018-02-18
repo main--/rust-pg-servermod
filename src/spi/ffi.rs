@@ -32,8 +32,10 @@ extern "C" {
                                      nulls: *const c_char,
                                      read_only: bool,
                                      cursor_options: c_int) -> *mut c_void;
+    pub fn SPI_cursor_fetch(cursor: *mut c_void, forward: bool, count: c_long);
+    pub fn SPI_scroll_cursor_move(cursor: *mut c_void, direction: i32, count: c_long);
     pub fn SPI_cursor_close(cursor: *mut c_void);
-    
+
     pub fn SPI_freetuptable(tuptable: *mut SPITupleTable);
     pub static mut SPI_tuptable: *mut SPITupleTable;
     pub static mut SPI_processed: u64;
@@ -42,7 +44,7 @@ extern "C" {
 pub const SPI_OK_CONNECT: i32 = 1;
 // pub const SPI_OK_FINISH: i32 = 2;
 
-pub const SPI_OK_FETCH: i32 = 3;
+// pub const SPI_OK_FETCH: i32 = 3;
 
 pub const SPI_OK_UTILITY: i32 = 4;
 pub const SPI_OK_SELECT: i32 = 5;
@@ -50,7 +52,7 @@ pub const SPI_OK_SELINTO: i32 = 6;
 pub const SPI_OK_INSERT: i32 = 7;
 pub const SPI_OK_DELETE: i32 = 8;
 pub const SPI_OK_UPDATE: i32 = 9;
-pub const SPI_OK_CURSOR: i32 = 10;
+// pub const SPI_OK_CURSOR: i32 = 10;
 pub const SPI_OK_INSERT_RETURNING: i32 = 11;
 pub const SPI_OK_DELETE_RETURNING: i32 = 12;
 pub const SPI_OK_UPDATE_RETURNING: i32 = 13;
@@ -60,7 +62,7 @@ pub const SPI_OK_REWRITTEN: i32 = 14;
 pub const SPI_ERR_COPY: i32 = -2;
 pub const SPI_ERR_OPUNKNOWN: i32 = -3;
 pub const SPI_ERR_UNCONNECTED: i32 = -4;
-pub const SPI_ERR_CURSOR: i32 = -5;
+// pub const SPI_ERR_CURSOR: i32 = -5;
 pub const SPI_ERR_ARGUMENT: i32 = -6;
 // pub const SPI_ERR_PARAM: i32 = -7;
 pub const SPI_ERR_TRANSACTION: i32 = -8;

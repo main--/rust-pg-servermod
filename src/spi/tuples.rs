@@ -7,6 +7,7 @@ use tuple::desc::{TupleDesc, RefTupleDesc};
 use tuple::slot::{TupleSlot, SlottedTuple};
 use alloc::MemoryContext;
 
+use error;
 use super::SpiContext;
 use super::ffi::*;
 
@@ -79,7 +80,7 @@ impl<'a> Debug for SpiTuples<'a> {
 impl<'a> Drop for SpiTuples<'a> {
     fn drop(&mut self) {
         unsafe {
-            SPI_freetuptable(self.table);
+            error::convert_postgres_error_dtor(|| SPI_freetuptable(self.table))
         }
     }
 }
