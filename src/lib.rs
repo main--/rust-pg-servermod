@@ -200,3 +200,21 @@ CREATE_STRICT_FUNCTION! {
         Some(42)
     }
 }
+
+CREATE_STRICT_FUNCTION! {
+    fn evalul2 @ pg_finfo_evalul2(ctx, sql: text) -> int4 {
+        let sql = sql.detoast_packed(ctx.allocator()).to_str()?;
+
+        let spi = ctx.connect_spi();
+        let mut cursor = spi.execute_cursor(sql, &[42i32.into(), ::spi::Parameter::null::<i32>(), 1337i32.into()]);
+        println!("{:?}", cursor.fetch(::spi::Direction::Forward, 2));
+        cursor.move_relative(1);
+        println!("{:?}", cursor.fetch(::spi::Direction::Forward, 1));
+        cursor.move_relative(-1);
+        println!("{:?}", cursor.fetch(::spi::Direction::Backward, 1));
+        cursor.move_absolute(5);
+        println!("{:?}", cursor.fetch(::spi::Direction::Forward, 1));
+
+        Some(42)
+    }
+}
